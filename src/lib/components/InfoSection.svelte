@@ -31,8 +31,9 @@
   ];
 </script>
 
-<section id="info" class="min-h-screen bg-white">
-  <div class="mx-auto flex min-h-screen max-w-6xl flex-col justify-center padding-l">
+<!-- Features section (outer spacing/layout must be owned by +page.svelte) -->
+<section id="features" class="min-h-screen bg-white">
+  <div class="flex min-h-screen flex-col justify-center">
     <!-- Section header -->
     <div class="max-w-3xl">
       <h2 class="heading-2">Designed for a better spice drawer</h2>
