@@ -50,10 +50,8 @@
 		color: inherit;
 	}
 
-	/* Form reset: remove native appearance so everything is style-driven */
 	input,
 	textarea,
-	select,
 	button {
 		appearance: none;
 		-webkit-appearance: none;
@@ -75,18 +73,6 @@
 		border: initial;
 	}
 
-	/* Make number inputs consistent (remove spinner in WebKit) */
-	input[type='number']::-webkit-outer-spin-button,
-	input[type='number']::-webkit-inner-spin-button {
-		-webkit-appearance: none;
-		margin: 0;
-	}
-
-	/* Firefox: remove number spinner */
-	input[type='number'] {
-		-moz-appearance: textfield;
-	}
-
 	/* Buttons are clickable and consistent */
 	button {
 		cursor: pointer;
@@ -96,6 +82,10 @@
 	a {
 		color: inherit;
 		text-decoration: none;
+	}
+	select {
+		appearance: auto;
+		-webkit-appearance: menulist;
 	}
 }
 
@@ -201,8 +191,6 @@
 
 	/* Fixed-width numeric input for drawer dimensions (mm) */
 	.dimension-input {
-		@apply w-full max-w-[120px] max-h-[40px] rounded-m border border-primary/15 bg-white px-3 py-2
-			focus:outline-none focus-visible:ring-2 focus-visible:ring-hover focus-visible:ring-offset-2
-			focus-visible:ring-offset-secondary-contrast;
+		@apply max-h-[40px] w-full max-w-[120px] rounded-m border border-primary/15 bg-white px-3 py-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-hover focus-visible:ring-offset-2 focus-visible:ring-offset-secondary-contrast;
 	}
 }
