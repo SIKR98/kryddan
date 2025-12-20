@@ -1,4 +1,4 @@
-@config "../../tailwind.config.js";
+@config '../../tailwind.config.js';
 
 /* Global styles and reusable utilities for the whole project.
    These are explicit classes (we do NOT style h1/h2/p tags globally),
@@ -7,24 +7,117 @@
 @import 'tailwindcss';
 
 /* ------------------------------------------------------------
+   Base reset (clean slate, while keeping accessibility in mind)
+   ------------------------------------------------------------ */
+@layer base {
+	/* Consistent box model */
+	*,
+	*::before,
+	*::after {
+		box-sizing: border-box;
+	}
+
+	/* Remove default page spacing */
+	html,
+	body {
+		margin: 0;
+		padding: 0;
+	}
+
+	/* Improve text rendering */
+	body {
+		-webkit-font-smoothing: antialiased;
+		-moz-osx-font-smoothing: grayscale;
+		text-rendering: optimizeLegibility;
+	}
+
+	/* Media elements behave predictably */
+	img,
+	picture,
+	video,
+	canvas,
+	svg {
+		display: block;
+		max-width: 100%;
+	}
+
+	/* Form elements inherit typography */
+	input,
+	button,
+	textarea,
+	select {
+		font: inherit;
+		color: inherit;
+	}
+
+	/* Form reset: remove native appearance so everything is style-driven */
+	input,
+	textarea,
+	select,
+	button {
+		appearance: none;
+		-webkit-appearance: none;
+		-moz-appearance: none;
+		background: transparent;
+		border-radius: 0;
+		border: 0;
+		outline: none;
+	}
+
+	/* Restore native appearance for radios and checkboxes (for now) */
+	input[type='radio'],
+	input[type='checkbox'] {
+		appearance: auto;
+		-webkit-appearance: auto;
+		-moz-appearance: auto;
+		background: initial;
+		border-radius: initial;
+		border: initial;
+	}
+
+	/* Make number inputs consistent (remove spinner in WebKit) */
+	input[type='number']::-webkit-outer-spin-button,
+	input[type='number']::-webkit-inner-spin-button {
+		-webkit-appearance: none;
+		margin: 0;
+	}
+
+	/* Firefox: remove number spinner */
+	input[type='number'] {
+		-moz-appearance: textfield;
+	}
+
+	/* Buttons are clickable and consistent */
+	button {
+		cursor: pointer;
+	}
+
+	/* Links */
+	a {
+		color: inherit;
+		text-decoration: none;
+	}
+}
+
+/* ------------------------------------------------------------
    Reusable design-system utilities
    ------------------------------------------------------------ */
 @layer utilities {
 	/* Typography */
 	.heading-1 {
-		@apply font-primary text-primary text-4xl leading-tight tracking-tight;
+		@apply font-primary text-4xl leading-tight tracking-tight text-primary;
 	}
 
 	.heading-2 {
-		@apply font-primary text-primary text-2xl leading-snug tracking-tight;
+		@apply font-primary text-2xl leading-snug tracking-tight text-primary;
 	}
 
 	.heading-3 {
-		@apply font-primary text-primary text-xl leading-snug;
+		@apply font-primary text-xl leading-snug text-primary;
 	}
 
 	.body-text {
-		@apply font-secondary text-secondary text-base leading-relaxed;
+		@apply font-secondary text-base leading-relaxed text-secondary;
 	}
 
 	/* Spacing: margin (xs/s/m/l/xl) */
@@ -42,6 +135,22 @@
 	}
 	.margin-xl {
 		@apply m-xl;
+	}
+
+	.margin-y-xs {
+		@apply my-xs;
+	}
+	.margin-y-s {
+		@apply my-s;
+	}
+	.margin-y-m {
+		@apply my-m;
+	}
+	.margin-y-l {
+		@apply my-l;
+	}
+	.margin-y-xl {
+		@apply my-xl;
 	}
 
 	/* Spacing: padding (xs/s/m/l/xl) */
@@ -63,11 +172,11 @@
 
 	/* Border + radius */
 	.border-default {
-		@apply border-primary/15 border;
+		@apply border border-primary/15;
 	}
 
 	.border-subtle {
-		@apply border-primary/10 border;
+		@apply border border-primary/10;
 	}
 
 	.radius-s {
@@ -81,12 +190,19 @@
 	}
 
 	/* UI transitions (hover/focus) */
-    .ui-hover {
-        @apply transition duration-200 ease-out hover:text-hover;
-    }
+	.ui-hover {
+		@apply transition duration-200 ease-out hover:text-hover;
+	}
 
 	/* Accessible focus ring (use alongside inputs/buttons) */
 	.focus-ring {
-		@apply focus-visible:ring-hover focus-visible:ring-offset-secondary-contrast focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2;
+		@apply focus:outline-none focus-visible:ring-2 focus-visible:ring-hover focus-visible:ring-offset-2 focus-visible:ring-offset-secondary-contrast;
+	}
+
+	/* Fixed-width numeric input for drawer dimensions (mm) */
+	.dimension-input {
+		@apply w-full max-w-[120px] max-h-[40px] rounded-m border border-primary/15 bg-white px-3 py-2
+			focus:outline-none focus-visible:ring-2 focus-visible:ring-hover focus-visible:ring-offset-2
+			focus-visible:ring-offset-secondary-contrast;
 	}
 }
