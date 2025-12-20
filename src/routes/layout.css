@@ -1,1 +1,92 @@
+@config "../../tailwind.config.js";
+
+/* Global styles and reusable utilities for the whole project.
+   These are explicit classes (we do NOT style h1/h2/p tags globally),
+   so components stay predictable and portable. */
+
 @import 'tailwindcss';
+
+/* ------------------------------------------------------------
+   Reusable design-system utilities
+   ------------------------------------------------------------ */
+@layer utilities {
+	/* Typography */
+	.heading-1 {
+		@apply font-primary text-primary text-4xl leading-tight tracking-tight;
+	}
+
+	.heading-2 {
+		@apply font-primary text-primary text-2xl leading-snug tracking-tight;
+	}
+
+	.heading-3 {
+		@apply font-primary text-primary text-xl leading-snug;
+	}
+
+	.body-text {
+		@apply font-secondary text-secondary text-base leading-relaxed;
+	}
+
+	/* Spacing: margin (xs/s/m/l/xl) */
+	.margin-xs {
+		@apply m-xs;
+	}
+	.margin-s {
+		@apply m-s;
+	}
+	.margin-m {
+		@apply m-m;
+	}
+	.margin-l {
+		@apply m-l;
+	}
+	.margin-xl {
+		@apply m-xl;
+	}
+
+	/* Spacing: padding (xs/s/m/l/xl) */
+	.padding-xs {
+		@apply p-xs;
+	}
+	.padding-s {
+		@apply p-s;
+	}
+	.padding-m {
+		@apply p-m;
+	}
+	.padding-l {
+		@apply p-l;
+	}
+	.padding-xl {
+		@apply p-xl;
+	}
+
+	/* Border + radius */
+	.border-default {
+		@apply border-primary/15 border;
+	}
+
+	.border-subtle {
+		@apply border-primary/10 border;
+	}
+
+	.radius-s {
+		@apply rounded-s;
+	}
+	.radius-m {
+		@apply rounded-m;
+	}
+	.radius-l {
+		@apply rounded-l;
+	}
+
+	/* UI transitions (hover/focus) */
+    .ui-hover {
+        @apply transition duration-200 ease-out hover:text-hover;
+    }
+
+	/* Accessible focus ring (use alongside inputs/buttons) */
+	.focus-ring {
+		@apply focus-visible:ring-hover focus-visible:ring-offset-secondary-contrast focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2;
+	}
+}
