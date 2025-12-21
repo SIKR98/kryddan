@@ -143,6 +143,22 @@
 		@apply my-xl;
 	}
 
+	.margin-x-xs {
+		@apply mx-xs;
+	}
+	.margin-x-s {
+		@apply mx-s;
+	}
+	.margin-x-m {
+		@apply mx-m;
+	}
+	.margin-x-l {
+		@apply mx-l;
+	}
+	.margin-x-xl {
+		@apply mx-xl;
+	}
+
 	/* Spacing: padding (xs/s/m/l/xl) */
 	.padding-xs {
 		@apply p-xs;
@@ -159,6 +175,39 @@
 	.padding-xl {
 		@apply p-xl;
 	}
+
+	.padding-y-xs {
+	@apply py-xs;
+	}
+	.padding-y-s {
+		@apply py-s;
+	}
+	.padding-y-m {
+		@apply py-m;
+	}
+	.padding-y-l {
+		@apply py-l;
+	}
+	.padding-y-xl {
+		@apply py-xl;
+	}
+
+	.padding-x-xs {
+		@apply px-xs;
+	}
+	.padding-x-s {
+		@apply px-s;
+	}
+	.padding-x-m {
+		@apply px-m;
+	}
+	.padding-x-l {
+		@apply px-l;
+	}
+	.padding-x-xl {
+		@apply px-xl;
+	}
+
 
 	/* Border + radius */
 	.border-default {

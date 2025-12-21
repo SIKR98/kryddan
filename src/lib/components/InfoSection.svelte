@@ -32,39 +32,43 @@
 </script>
 
 <!-- Features section (outer spacing/layout must be owned by +page.svelte) -->
-<section id="features" class="min-h-screen bg-white">
-  <div class="flex min-h-screen flex-col justify-center">
-    <!-- Section header -->
-    <div class="max-w-3xl">
-      <h2 class="heading-2">Designed for a better spice drawer</h2>
-      <p class="body-text margin-y-s">
-        A modular system that keeps jars visible, stable, and easy to grab —
-        while letting you build a layout that fits your drawer exactly.
-      </p>
+<section id="features" class="h-screen w-full bg-white">
+  <div class="grid h-full w-full grid-rows-[30vh_1fr]">
+    <!-- Section header: 25vh -->
+    <div class="grid justify-items-center items-end text-center">
+      <div>
+        <h2 class="heading-2">Designed for a better spice drawer</h2>
+        <p class="body-text margin-y-s">
+          A modular system that keeps jars visible, stable, and easy to grab —
+          while letting you build a layout that fits your drawer exactly.
+        </p>
+      </div>
     </div>
 
-    <!-- Cards -->
-    <div class="margin-y-l grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+    <!-- Cards: remaining height -->
+    <div class="grid h-full w-full grid-cols-2 grid-rows-2 gap-4 md:grid-cols-4 md:grid-rows-1">
       {#each cards as card}
-        <article
-          class="radius-l border-default bg-secondary-contrast overflow-hidden
-                 transform-gpu transition duration-200 ease-out
-                 hover:scale-[1.03] hover:shadow-lg"
-        >
-          <div class="aspect-[16/10] overflow-hidden bg-white">
-            <img
-              src={card.image}
-              alt={card.alt}
-              loading="lazy"
-              class="h-full w-full object-cover"
-            />
-          </div>
+        <div class="grid place-items-center">
+          <article
+            class="radius-l w-full max-h-[60vh] aspect-[1/1.5] border-default bg-primary-contrast overflow-hidden
+                   transform-gpu transition duration-200 ease-out
+                   hover:scale-[1.03] hover:shadow-lg"
+          >
+            <div class="overflow-hidden">
+              <img
+                src={card.image}
+                alt={card.alt}
+                loading="lazy"
+                class="h-full w-full object-cover"
+              />
+            </div>
 
-          <div class="padding-m">
-            <h3 class="heading-3">{card.title}</h3>
-            <p class="body-text margin-y-s">{card.description}</p>
-          </div>
-        </article>
+            <div class="padding-m text-center">
+              <h3 class="heading-3">{card.title}</h3>
+              <p class="body-text margin-y-s">{card.description}</p>
+            </div>
+          </article>
+        </div>
       {/each}
     </div>
   </div>

@@ -9,7 +9,7 @@ export default {
       colors: {
         primary: '#111827', // near-black for text and key UI
         secondary: '#6B7280', // muted gray for secondary text
-        'primary-contrast': '#FFFFFF',
+        'primary-contrast': '#e8e9ebff', // light background for cards/containers
         'secondary-contrast': '#F9FAFB',
         hover: '#2563EB' // accent for hover/focus states
       },

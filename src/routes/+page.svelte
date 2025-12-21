@@ -39,27 +39,12 @@
   let isWideViewport = false;
   const WIDE_VIEWPORT_PX = 1100;
 
-  // Sticky navbar until builder
-  let isNavbarSticky = true;
-  let builderTop = 0;
-
   // Scroll persistence keys
   const SCROLL_Y_KEY = 'kryddan:scrollY';
   const LAST_SECTION_KEY = 'kryddan:lastSectionId';
 
   function updateViewportFlags() {
     isWideViewport = window.innerWidth >= WIDE_VIEWPORT_PX;
-  }
-
-  function measureBuilderTop() {
-    const builderEl = document.getElementById('builder');
-    if (!builderEl) return;
-    builderTop = builderEl.offsetTop;
-  }
-
-  function updateStickyState(scrollY: number) {
-    // Sticky only until the builder section starts
-    isNavbarSticky = scrollY < builderTop;
   }
 
   function scrollToSection(id: SectionId) {
@@ -95,13 +80,9 @@
 
   onMount(() => {
     updateViewportFlags();
-    measureBuilderTop();
-    updateStickyState(window.scrollY);
 
     const onResize = () => {
       updateViewportFlags();
-      measureBuilderTop();
-      updateStickyState(window.scrollY);
     };
 
     // Persist scroll position (throttled with rAF)
@@ -114,7 +95,6 @@
         const y = window.scrollY;
 
         sessionStorage.setItem(SCROLL_Y_KEY, String(y));
-        updateStickyState(y);
 
         ticking = false;
       });
@@ -130,8 +110,6 @@
       if (!Number.isNaN(y)) {
         requestAnimationFrame(() => {
           window.scrollTo({ top: y, behavior: 'auto' });
-          measureBuilderTop();
-          updateStickyState(window.scrollY);
         });
       }
     }
@@ -143,40 +121,39 @@
   });
 </script>
 
-<div class="overflow-x-hidden">
-  <!-- Sticky behavior controlled here (not inside Navbar) -->
-  <div class:sticky-nav={isNavbarSticky}>
-    <!-- Site container: controls width + horizontal padding globally -->
-    <div class="mx-auto max-w-6xl padding-l">
+<!-- "Body" wrapper: 4 rows x 100vh, full width, no padding/margins/gaps -->
+<div class="grid w-full grid-rows-4 px-xl">
+  <!-- PRE-BUILDER WRAPPER: sticky-nav is constrained to sections 1+2 and stops before section 3 -->
+  <div class="grid">
+    <div class="sticky-nav">
       <Navbar {navItems} onNavigate={scrollToSection} />
     </div>
+
+    <!-- SECTION 1: Hero (nav is above, still within the same prebuilder wrapper) -->
+    <section id="home" class="max-h-[100vh] w-full grid place-items-center">
+      <div class="grid h-full w-full">
+        <div class="grid place-items-center">
+          <div class="">
+            <Hero {scrollToBuilder} />
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION 2: InfoSection -->
+    <section class="h-screen w-full grid place-items-center">
+      <InfoSection />
+    </section>
   </div>
 
-  <!-- HOME -->
-  <section id="home">
-    <!-- Site container -->
-    <div class="mx-auto max-w-6xl padding-l">
-      <Hero {scrollToBuilder} />
-    </div>
-  </section>
-
-  <!-- FEATURES (InfoSection is already a <section id="features">) -->
-  <!-- Site container -->
-  <div class="mx-auto max-w-6xl padding-l">
-    <InfoSection />
-  </div>
-
-  <!-- BUILDER SECTION: 100vh total -->
-  <section id="builder" class="h-screen bg-white">
-    <!-- Site container -->
-    <div class="mx-auto h-full max-w-6xl padding-l flex flex-col gap-4">
-      <!-- Presets: fixed 20vh -->
-      <div class="h-[20vh] min-h-[100px]">
+  <!-- SECTION 3: DrawerPreset + DrawerBuilder -->
+  <section id="builder" class="h-screen w-full grid place-items-center bg-white">
+    <div class="grid h-full w-full grid-rows-[18vh_1fr]">
+      <div class="grid justify-items-center items-start text-center">
         <DrawerPreset bind:preset bind:widthMm bind:depthMm bind:heightMm bind:hasCornerProfile />
       </div>
 
-      <!-- Builder: takes the remaining height -->
-      <div class="flex-1 min-h-0">
+      <div class="grid place-items-center">
         <DrawerBuilder
           bind:widthMm
           bind:depthMm
@@ -188,27 +165,33 @@
     </div>
   </section>
 
-  <!-- ABOUT -->
-  <section id="about" class="min-h-screen bg-secondary-contrast">
-    <!-- Site container -->
-    <div class="mx-auto max-w-6xl padding-l">
-      <h2 class="heading-2">About</h2>
-      <p class="body-text margin-y-s">
-        This section is a placeholder for now. We’ll replace it with real content later.
-      </p>
+  <!-- SECTION 4: About (+ footer placeholder inside section) -->
+  <section id="about" class="h-screen w-full grid place-items-center bg-secondary-contrast">
+    <div class="grid place-items-center">
+      <div class="text-center">
+        <h2 class="heading-2">About</h2>
+        <p class="body-text">
+          This section is a placeholder for now. We’ll replace it with real content later.
+        </p>
+      </div>
+
+      <!-- Minimal footer placeholder (no padding/margins) -->
+      <footer class="text-center">
+        <p class="body-text">© Kryddan</p>
+      </footer>
     </div>
   </section>
-
-  <!-- BOM Drawer -->
-  <BomDrawer
-    isOpen={isBomOpen}
-    {moduleCount}
-    {bumpKey}
-    title="Your build"
-    onToggle={toggleBom}
-    onClose={closeBom}
-  />
 </div>
+
+<!-- BOM Drawer (unchanged) -->
+<BomDrawer
+  isOpen={isBomOpen}
+  {moduleCount}
+  {bumpKey}
+  title="Your build"
+  onToggle={toggleBom}
+  onClose={closeBom}
+/>
 
 <style>
   .sticky-nav {
