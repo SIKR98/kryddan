@@ -3,8 +3,8 @@
 </script>
 
 <!-- HERO (100vh) -->
-<section class="min-h-screen">
-  <div class="flex min-h-screen flex-col mt-[10vh]">
+<section class="min-h-[100vh]">
+  <div class="flex min-h-screen flex-col mt-[20vh]">
     <!-- Hero content -->
     <div class="grid items-center gap-10 md:grid-cols-2">
       <div>

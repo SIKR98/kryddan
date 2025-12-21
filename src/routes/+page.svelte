@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
 
   import Navbar from '$lib/components/Navbar.svelte';
   import Hero from '$lib/components/Hero.svelte';
@@ -78,76 +78,138 @@
     isBomOpen = false;
   }
 
-  onMount(() => {
-    updateViewportFlags();
+  // --- Sticky-until-builder logic (minimal, keeps everything else the same) ---
+  let navEl: HTMLDivElement | null = null;
+  let navHeight = 0;
+  let builderTop = 0;
 
-    const onResize = () => {
-      updateViewportFlags();
-    };
+  type NavMode = 'fixed' | 'absolute';
+  let navMode: NavMode = 'fixed';
+  let navAbsTop = 0;
 
-    // Persist scroll position (throttled with rAF)
-    let ticking = false;
-    const onScroll = () => {
-      if (ticking) return;
-      ticking = true;
+  function measureBuilderTop() {
+    const builderEl = document.getElementById('builder');
+    if (!builderEl) return;
+    builderTop = builderEl.offsetTop;
+  }
 
-      requestAnimationFrame(() => {
-        const y = window.scrollY;
+  function measureNavHeight() {
+    if (!navEl) return;
+    navHeight = navEl.offsetHeight || 0;
+  }
 
-        sessionStorage.setItem(SCROLL_Y_KEY, String(y));
+  function updateNavMode(scrollY: number) {
+    // Stop pinning exactly before builder starts.
+    const stopY = Math.max(0, builderTop - navHeight);
 
-        ticking = false;
-      });
-    };
-
-    window.addEventListener('resize', onResize);
-    window.addEventListener('scroll', onScroll, { passive: true });
-
-    // Restore scroll position on refresh (no URL hashes)
-    const savedY = sessionStorage.getItem(SCROLL_Y_KEY);
-    if (savedY) {
-      const y = Number(savedY);
-      if (!Number.isNaN(y)) {
-        requestAnimationFrame(() => {
-          window.scrollTo({ top: y, behavior: 'auto' });
-        });
-      }
+    if (scrollY >= stopY) {
+      navMode = 'absolute';
+      navAbsTop = stopY;
+    } else {
+      navMode = 'fixed';
+      navAbsTop = stopY; // keep last sane value
     }
+  }
+  // -------------------------------------------------------------------------
+
+  onMount(() => {
+    const initializeAsync = async () => {
+      updateViewportFlags();
+
+      await tick();
+      measureNavHeight();
+      measureBuilderTop();
+      updateNavMode(window.scrollY);
+
+      const onResize = async () => {
+        updateViewportFlags();
+        await tick();
+        measureNavHeight();
+        measureBuilderTop();
+        updateNavMode(window.scrollY);
+      };
+
+      // Persist scroll position (throttled with rAF)
+      let ticking = false;
+      const onScroll = () => {
+        if (ticking) return;
+        ticking = true;
+
+        requestAnimationFrame(() => {
+          const y = window.scrollY;
+
+          sessionStorage.setItem(SCROLL_Y_KEY, String(y));
+          updateNavMode(y);
+
+          ticking = false;
+        });
+      };
+
+      window.addEventListener('resize', onResize);
+      window.addEventListener('scroll', onScroll, { passive: true });
+
+      // Restore scroll position on refresh (no URL hashes)
+      const savedY = sessionStorage.getItem(SCROLL_Y_KEY);
+      if (savedY) {
+        const y = Number(savedY);
+        if (!Number.isNaN(y)) {
+          requestAnimationFrame(() => {
+            window.scrollTo({ top: y, behavior: 'auto' });
+            measureBuilderTop();
+            measureNavHeight();
+            updateNavMode(window.scrollY);
+          });
+        }
+      }
+
+      return () => {
+        window.removeEventListener('resize', onResize);
+        window.removeEventListener('scroll', onScroll);
+      };
+    };
+
+    initializeAsync();
 
     return () => {
-      window.removeEventListener('resize', onResize);
-      window.removeEventListener('scroll', onScroll);
+      // cleanup if needed
     };
   });
 </script>
 
-<!-- "Body" wrapper: 4 rows x 100vh, full width, no padding/margins/gaps -->
-<div class="grid w-full grid-rows-4 px-xl">
-  <!-- PRE-BUILDER WRAPPER: sticky-nav is constrained to sections 1+2 and stops before section 3 -->
-  <div class="grid">
-    <div class="sticky-nav">
+<!-- "Body" wrapper: 4 rows x 100vh -->
+<div class="grid w-full grid-rows-[repeat(4,100vh)] px-xl relative">
+  <!-- NAVBAR overlay: stays through section 1 + 2, then releases before section 3 -->
+  <div
+    bind:this={navEl}
+    class="z-[60] w-full"
+    style={navMode === 'fixed'
+      ? 'position: fixed; top: 0; left: 0; right: 0;'
+      : `position: absolute; top: ${navAbsTop}px; left: 0; right: 0;`}
+  >
+    <!-- keep same horizontal alignment as grid padding -->
+    <div class="px-xl">
       <Navbar {navItems} onNavigate={scrollToSection} />
     </div>
-
-    <!-- SECTION 1: Hero (nav is above, still within the same prebuilder wrapper) -->
-    <section id="home" class="max-h-[100vh] w-full grid place-items-center">
-      <div class="grid h-full w-full">
-        <div class="grid place-items-center">
-          <div class="">
-            <Hero {scrollToBuilder} />
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- SECTION 2: InfoSection -->
-    <section class="h-screen w-full grid place-items-center">
-      <InfoSection />
-    </section>
   </div>
 
-  <!-- SECTION 3: DrawerPreset + DrawerBuilder -->
-  <section id="builder" class="h-screen w-full grid place-items-center bg-white">
+  <!-- ROW 1: Home (Hero) -->
+  <section id="home" class="h-[100vh] w-full grid place-items-center">
+    <div class="grid h-full w-full">
+      <div class="grid place-items-center">
+        <div class="">
+          <Hero {scrollToBuilder} />
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ROW 2: Features -->
+  <section class="h-[100vh] w-full grid place-items-center">
+    <InfoSection />
+  </section>
+
+  <!-- ROW 3: Builder -->
+  <section id="builder" class="h-[100vh] w-full grid place-items-center bg-white">
     <div class="grid h-full w-full grid-rows-[18vh_1fr]">
       <div class="grid justify-items-center items-start text-center">
         <DrawerPreset bind:preset bind:widthMm bind:depthMm bind:heightMm bind:hasCornerProfile />
@@ -165,8 +227,8 @@
     </div>
   </section>
 
-  <!-- SECTION 4: About (+ footer placeholder inside section) -->
-  <section id="about" class="h-screen w-full grid place-items-center bg-secondary-contrast">
+  <!-- ROW 4: About -->
+  <section id="about" class="h-[100vh] w-full grid place-items-center bg-secondary-contrast">
     <div class="grid place-items-center">
       <div class="text-center">
         <h2 class="heading-2">About</h2>
@@ -175,7 +237,6 @@
         </p>
       </div>
 
-      <!-- Minimal footer placeholder (no padding/margins) -->
       <footer class="text-center">
         <p class="body-text">© Kryddan</p>
       </footer>
@@ -194,6 +255,7 @@
 />
 
 <style>
+  /* sticky-nav class kept (not used for positioning anymore, but leaving it avoids breaking other assumptions) */
   .sticky-nav {
     position: sticky;
     top: 0;
