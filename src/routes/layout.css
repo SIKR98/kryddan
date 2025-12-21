@@ -95,19 +95,19 @@
 @layer utilities {
 	/* Typography */
 	.heading-1 {
-		@apply font-primary text-4xl leading-tight tracking-tight text-primary;
+		@apply font-primary text-4xl leading-tight tracking-tight text-primary-contrast;
 	}
 
 	.heading-2 {
-		@apply font-primary text-2xl leading-snug tracking-tight text-primary;
+		@apply font-primary text-2xl leading-snug tracking-tight text-primary-contrast;
 	}
 
 	.heading-3 {
-		@apply font-primary text-xl leading-snug text-primary;
+		@apply font-primary text-xl leading-snug text-primary-contrast;
 	}
 
 	.body-text {
-		@apply font-secondary text-base leading-relaxed text-secondary;
+		@apply font-secondary text-base leading-relaxed text-secondary-contrast;
 	}
 
 	/* Spacing: margin (xs/s/m/l/xl) */
@@ -211,11 +211,11 @@
 
 	/* Border + radius */
 	.border-default {
-		@apply border border-primary/15;
+		@apply border border-secondary-contrast;
 	}
 
 	.border-subtle {
-		@apply border border-primary/10;
+		@apply border border-secondary-contrast;
 	}
 
 	.radius-s {

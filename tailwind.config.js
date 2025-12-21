@@ -7,10 +7,12 @@ export default {
     extend: {
       // Color tokens
       colors: {
-        primary: '#111827', // near-black for text and key UI
-        secondary: '#6B7280', // muted gray for secondary text
-        'primary-contrast': '#e8e9ebff', // light background for cards/containers
-        'secondary-contrast': '#F9FAFB',
+        primary: '#F9FAFB', // near-black for text and key UI
+        secondary: '#e8e9ebff', // muted gray for secondary text
+        'primary-contrast': '#505255ff', // light background for cards/containers
+        'secondary-contrast': '#27292bff',
+        'primary-accent': '#f0f0f0ff',
+        'secondary-accent': '#27292bff',
         hover: '#2563EB' // accent for hover/focus states
       },
 
@@ -26,7 +28,7 @@ export default {
         s: '8px',
         m: '16px',
         l: '24px',
-        xl: '32px'
+        xl: '62px'
       },
 
       // Border radius scale

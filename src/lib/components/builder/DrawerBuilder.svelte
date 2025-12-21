@@ -11,7 +11,7 @@
 </script>
 
 <!-- IMPORTANT: h-full so it fills the remaining builder area -->
-<div class="h-full w-full radius-l border-default bg-secondary-contrast overflow-hidden">
+<div class="h-full w-full border-default bg-secondary overflow-hidden">
   <BuilderCanvas
     {widthMm}
     {depthMm}

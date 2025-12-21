@@ -34,8 +34,8 @@
   }
 </script>
 
-<header class="bg-white/80 backdrop-blur border-b border-primary/10">
-  <div class="flex items-center justify-between h-[10vh]">
+<header>
+  <div class="flex items-center justify-between h-[10vh] px-m md:px-xl">
     <button type="button" class="flex items-center gap-3" on:click={() => onNavigate('home')}>
       <div class="radius-m border-default flex h-10 w-10 items-center justify-center bg-white">
         <span class="heading-3">SK</span>

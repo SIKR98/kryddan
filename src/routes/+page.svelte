@@ -7,6 +7,8 @@
   import DrawerPreset from '$lib/components/DrawerPreset.svelte';
   import DrawerBuilder from '$lib/components/builder/DrawerBuilder.svelte';
   import BomDrawer from '$lib/components/BomDrawer.svelte';
+  import AboutSection from '$lib/components/AboutSection.svelte';
+  import Footer from '$lib/components/Footer.svelte';
 
   type DrawerPresetValue = 'custom' | 'ikea-metod-maximera';
   type SectionId = 'home' | 'features' | 'builder' | 'about';
@@ -177,7 +179,7 @@
 </script>
 
 <!-- "Body" wrapper: 4 rows x 100vh -->
-<div class="grid w-full grid-rows-[repeat(4,100vh)] px-xl relative">
+<div class="grid w-full grid-rows-[repeat(4,100vh)] px-s md:px-xl relative bg-primary">
   <!-- NAVBAR overlay: stays through section 1 + 2, then releases before section 3 -->
   <div
     bind:this={navEl}
@@ -187,61 +189,60 @@
       : `position: absolute; top: ${navAbsTop}px; left: 0; right: 0;`}
   >
     <!-- keep same horizontal alignment as grid padding -->
-    <div class="px-xl">
+    <div class="bg-primary-accent/80 backdrop-blur border-b border-primary/10">
       <Navbar {navItems} onNavigate={scrollToSection} />
     </div>
   </div>
 
   <!-- ROW 1: Home (Hero) -->
-  <section id="home" class="h-[100vh] w-full grid place-items-center">
-    <div class="grid h-full w-full">
-      <div class="grid place-items-center">
-        <div class="">
-          <Hero {scrollToBuilder} />
+    <section id="home" class="h-[100vh] w-full grid">
+        <div class="grid h-full w-full justify-items-center items-start md:items-center">
+            <Hero {scrollToBuilder} />
         </div>
-      </div>
-    </div>
-  </section>
+    </section>
 
   <!-- ROW 2: Features -->
   <section class="h-[100vh] w-full grid place-items-center">
     <InfoSection />
   </section>
 
-  <!-- ROW 3: Builder -->
-  <section id="builder" class="h-[100vh] w-full grid place-items-center bg-white">
-    <div class="grid h-full w-full grid-rows-[18vh_1fr]">
-      <div class="grid justify-items-center items-start text-center">
-        <DrawerPreset bind:preset bind:widthMm bind:depthMm bind:heightMm bind:hasCornerProfile />
-      </div>
-
-      <div class="grid place-items-center">
-        <DrawerBuilder
-          bind:widthMm
-          bind:depthMm
-          bind:heightMm
-          bind:hasCornerProfile
-          onAddModule={simulateAddModule}
-        />
-      </div>
+<!-- ROW 3: Builder -->
+<section id="builder" class="h-[100vh] w-full grid place-items-center py-m">
+  <div class="flex h-full w-full flex-col">
+    <!-- Preset: fixed height -->
+    <div class="flex-none grid justify-items-center items-start text-center">
+      <DrawerPreset bind:preset bind:widthMm bind:depthMm bind:heightMm bind:hasCornerProfile />
     </div>
-  </section>
 
-  <!-- ROW 4: About -->
-  <section id="about" class="h-[100vh] w-full grid place-items-center bg-secondary-contrast">
-    <div class="grid place-items-center">
-      <div class="text-center">
-        <h2 class="heading-2">About</h2>
-        <p class="body-text">
-          This section is a placeholder for now. We’ll replace it with real content later.
-        </p>
-      </div>
-
-      <footer class="text-center">
-        <p class="body-text">© Kryddan</p>
-      </footer>
+    <!-- Builder: takes remaining space -->
+    <div class="flex-1 min-h-0 grid place-items-center overflow-hidden md:overflow-visible pt-s md:pt-m">
+      <DrawerBuilder
+        bind:widthMm
+        bind:depthMm
+        bind:heightMm
+        bind:hasCornerProfile
+        onAddModule={simulateAddModule}
+      />
     </div>
-  </section>
+  </div>
+</section>
+
+
+<!-- ROW 4: About (100vh) -->
+<section id="about" class="h-[100vh] w-full grid place-items-center">
+  <AboutSection />
+</section>
+
+<!-- Footer (full-bleed 100vw) -->
+<section class="w-full">
+  <div class="-mx-s md:-mx-xl">
+    <Footer />
+  </div>
+</section>
+
+
+
+
 </div>
 
 <!-- BOM Drawer (unchanged) -->
@@ -254,11 +255,4 @@
   onClose={closeBom}
 />
 
-<style>
-  /* sticky-nav class kept (not used for positioning anymore, but leaving it avoids breaking other assumptions) */
-  .sticky-nav {
-    position: sticky;
-    top: 0;
-    z-index: 60;
-  }
-</style>
+<style></style>

@@ -15,7 +15,7 @@
   export let hasCornerProfile: HasCornerProfile;
 </script>
 
-<div class="radius-m border-default bg-secondary-contrast padding-m w-full">
+<div class="border-default bg-secondary padding-m w-full">
   <div class="grid gap-4">
     <!-- Large screens: one row, preset 1/3 and controls 2/3 -->
     <div class="hidden md:grid grid-cols-3 gap-4 items-end">

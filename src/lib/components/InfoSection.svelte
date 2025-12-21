@@ -32,7 +32,7 @@
 </script>
 
 <!-- Features section (outer spacing/layout must be owned by +page.svelte) -->
-<section id="features" class="h-screen w-full bg-white">
+<section id="features" class="h-screen w-full">
   <div class="grid h-full w-full grid-rows-[30vh_1fr]">
     <!-- Section header: 25vh -->
     <div class="grid justify-items-center items-end text-center">
@@ -50,7 +50,7 @@
       {#each cards as card}
         <div class="grid place-items-center">
           <article
-            class="radius-l w-full max-h-[60vh] aspect-[1/1.5] border-default bg-primary-contrast overflow-hidden
+            class="w-full max-h-[60vh] bg-secondary aspect-[1/1.5] border-default overflow-hidden
                    transform-gpu transition duration-200 ease-out
                    hover:scale-[1.03] hover:shadow-lg"
           >
