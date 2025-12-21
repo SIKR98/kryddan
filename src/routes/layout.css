@@ -110,6 +110,10 @@
 		@apply font-secondary text-base leading-relaxed text-secondary-contrast;
 	}
 
+	.small-text {
+		@apply font-secondary text-sm leading-relaxed text-secondary-contrast;
+	}
+
 	/* Spacing: margin (xs/s/m/l/xl) */
 	.margin-xs {
 		@apply m-xs;
