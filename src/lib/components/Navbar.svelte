@@ -28,7 +28,6 @@
 
     // Route placeholder for Cart (will become a real route later)
     if (item.kind === 'route') {
-      // Intentionally no-op for now
       return;
     }
   }
@@ -36,16 +35,30 @@
 
 <header>
   <div class="flex items-center justify-between h-[10vh] px-m md:px-xl">
-    <button type="button" class="flex items-center gap-3" on:click={() => onNavigate('home')}>
-      <div class="radius-m border-default flex h-10 w-10 items-center justify-center bg-white">
-        <span class="heading-3">SK</span>
+    <button
+      type="button"
+      class="flex items-center gap-3"
+      on:click={() => onNavigate('home')}
+    >
+      <!-- Icon -->
+      <div class="flex h-10 w-10 items-center justify-center overflow-hidden">
+        <img
+          src="/icon/kryddIcon.png"
+          alt="Kryddan icon"
+          class="h-full w-full object-cover"
+        />
       </div>
+
       <span class="heading-3">Spice Drawer</span>
     </button>
 
     <nav class="hidden items-center gap-6 md:flex" aria-label="Primary">
       {#each navItems as item}
-        <button type="button" class="body-text ui-hover" on:click={() => handleClick(item)}>
+        <button
+          type="button"
+          class="body-text ui-hover"
+          on:click={() => handleClick(item)}
+        >
           {item.label}
         </button>
       {/each}
