@@ -17,18 +17,15 @@
     { label: 'Features', id: 'features', kind: 'scroll' },
     { label: 'Builder', id: 'builder', kind: 'scroll' },
     { label: 'About', id: 'about', kind: 'scroll' },
-    { label: 'Cart', kind: 'route' } // later: route navigation
+    { label: 'Cart', kind: 'route' }
   ];
 
   // Drawer configuration state
   let preset: DrawerPresetValue = 'custom';
 
-  // Dimensions in millimeters
   let widthMm = 600;
   let depthMm = 450;
   let heightMm = 100;
-
-  // Internal side corner profile
   let hasCornerProfile: 'yes' | 'no' = 'no';
 
   // BOM / Cart-like drawer state
@@ -36,13 +33,26 @@
   let moduleCount = 0;
   let bumpKey = 0;
 
-  // Wide screen heuristic
+  // Viewport
   let isWideViewport = false;
   const WIDE_VIEWPORT_PX = 1100;
 
-  // Scroll persistence keys
+  // Scroll persistence
   const SCROLL_Y_KEY = 'kryddan:scrollY';
-  const LAST_SECTION_KEY = 'kryddan:lastSectionId';
+
+  // ⬇️ tweakbar delay before restore
+  const RESTORE_SCROLL_DELAY_MS = 200;
+
+  // Scroll lock (keeps scrollbar visible)
+  let isScrollLocked = false;
+
+  function lockScrollInput() {
+    isScrollLocked = true;
+  }
+
+  function unlockScrollInput() {
+    isScrollLocked = false;
+  }
 
   function updateViewportFlags() {
     isWideViewport = window.innerWidth >= WIDE_VIEWPORT_PX;
@@ -51,17 +61,13 @@
   function scrollToSection(id: SectionId) {
     const el = document.getElementById(id);
     if (!el) return;
-
     el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    sessionStorage.setItem(LAST_SECTION_KEY, id);
   }
 
-  // Backwards compatible for Hero (keeps your existing Hero API)
   function scrollToBuilder() {
     scrollToSection('builder');
   }
 
-  // Placeholder: later this will be called by drag-n-drop / snapping logic.
   function simulateAddModule() {
     moduleCount += 1;
     bumpKey += 1;
@@ -79,7 +85,7 @@
     isBomOpen = false;
   }
 
-  // --- Sticky-until-builder logic (minimal, keeps everything else the same) ---
+  // --- Sticky-until-builder logic ---
   let navEl: HTMLDivElement | null = null;
   let navHeight = 0;
   let builderTop = 0;
@@ -100,86 +106,71 @@
   }
 
   function updateNavMode(scrollY: number) {
-    // Stop pinning exactly before builder starts.
     const stopY = Math.max(0, builderTop - navHeight);
-
-    if (scrollY >= stopY) {
-      navMode = 'absolute';
-      navAbsTop = stopY;
-    } else {
-      navMode = 'fixed';
-      navAbsTop = stopY; // keep last sane value
-    }
+    navMode = scrollY >= stopY ? 'absolute' : 'fixed';
+    navAbsTop = stopY;
   }
-  // -------------------------------------------------------------------------
+  // ----------------------------------
 
   onMount(() => {
-    const initializeAsync = async () => {
-      updateViewportFlags();
+    // prevent browser native restoration
+    if ('scrollRestoration' in history) {
+      history.scrollRestoration = 'manual';
+    }
 
-      await tick();
-      measureNavHeight();
-      measureBuilderTop();
+    updateViewportFlags();
+    tick();
+
+    measureNavHeight();
+    measureBuilderTop();
+    updateNavMode(0);
+
+    const onScroll = () => {
+      if (isScrollLocked) return;
+      sessionStorage.setItem(SCROLL_Y_KEY, String(window.scrollY));
       updateNavMode(window.scrollY);
+    };
 
-      const onResize = async () => {
-        updateViewportFlags();
-        await tick();
-        measureNavHeight();
-        measureBuilderTop();
-        updateNavMode(window.scrollY);
-      };
+    window.addEventListener('scroll', onScroll, { passive: true });
 
-      // Persist scroll position (throttled with rAF)
-      let ticking = false;
-      const onScroll = () => {
-        if (ticking) return;
-        ticking = true;
+    const savedY = sessionStorage.getItem(SCROLL_Y_KEY);
 
-        requestAnimationFrame(() => {
-          const y = window.scrollY;
+    if (savedY) {
+      const targetY = Number(savedY);
 
-          sessionStorage.setItem(SCROLL_Y_KEY, String(y));
-          updateNavMode(y);
+      if (!Number.isNaN(targetY) && targetY > 0) {
+        // always start at top visually
+        window.scrollTo({ top: 0, behavior: 'auto' });
+        lockScrollInput();
 
-          ticking = false;
-        });
-      };
+        setTimeout(() => {
+          window.scrollTo({ top: targetY, behavior: 'smooth' });
 
-      window.addEventListener('resize', onResize);
-      window.addEventListener('scroll', onScroll, { passive: true });
-
-      // Restore scroll position on refresh (no URL hashes)
-      const savedY = sessionStorage.getItem(SCROLL_Y_KEY);
-      if (savedY) {
-        const y = Number(savedY);
-        if (!Number.isNaN(y)) {
-          requestAnimationFrame(() => {
-            window.scrollTo({ top: y, behavior: 'auto' });
+          // unlock after scroll finishes
+          setTimeout(() => {
+            unlockScrollInput();
             measureBuilderTop();
             measureNavHeight();
             updateNavMode(window.scrollY);
-          });
-        }
+          }, 600);
+        }, RESTORE_SCROLL_DELAY_MS);
       }
-
-      return () => {
-        window.removeEventListener('resize', onResize);
-        window.removeEventListener('scroll', onScroll);
-      };
-    };
-
-    initializeAsync();
+    }
 
     return () => {
-      // cleanup if needed
+      window.removeEventListener('scroll', onScroll);
     };
   });
 </script>
 
-<!-- "Body" wrapper: 4 rows x 100vh -->
+<!-- Transparent scroll-lock overlay (keeps scrollbar, blocks input) -->
+{#if isScrollLocked}
+  <div class="fixed inset-0 z-[9999]" aria-hidden="true"></div>
+{/if}
+
+<!-- BODY -->
 <div class="grid w-full grid-rows-[repeat(4,100vh)] px-s md:px-xl relative bg-primary">
-  <!-- NAVBAR overlay: stays through section 1 + 2, then releases before section 3 -->
+  <!-- NAVBAR -->
   <div
     bind:this={navEl}
     class="z-[60] w-full"
@@ -192,7 +183,7 @@
     </div>
   </div>
 
-  <!-- ROW 1: Home (Hero) -->
+  <!-- ROW 1: Home -->
   <section id="home" class="h-[100vh] w-full grid">
     <div class="grid h-full w-full justify-items-center items-start md:items-center">
       <Hero {scrollToBuilder} />
@@ -207,13 +198,17 @@
   <!-- ROW 3: Builder -->
   <section id="builder" class="h-[100vh] w-full grid place-items-center py-m">
     <div class="flex h-full w-full flex-col">
-      <!-- Preset -->
       <div class="flex-none grid justify-items-center items-start text-center">
-        <DrawerPreset bind:preset bind:widthMm bind:depthMm bind:heightMm bind:hasCornerProfile />
+        <DrawerPreset
+          bind:preset
+          bind:widthMm
+          bind:depthMm
+          bind:heightMm
+          bind:hasCornerProfile
+        />
       </div>
 
-      <!-- Builder: takes remaining space -->
-      <div class="flex-1 min-h-0 grid place-items-center overflow-hidden md:overflow-visible pt-s md:pt-m">
+      <div class="flex-1 min-h-0 grid place-items-center overflow-hidden pt-s">
         <DrawerBuilder
           bind:widthMm
           bind:depthMm
@@ -230,12 +225,12 @@
     </div>
   </section>
 
-  <!-- ROW 4: About (100vh) -->
+  <!-- ROW 4: About -->
   <section id="about" class="h-[100vh] w-full grid place-items-center">
     <AboutSection />
   </section>
 
-  <!-- Footer (full-bleed 100vw) -->
+  <!-- Footer -->
   <section class="w-full">
     <div class="-mx-s md:-mx-xl">
       <Footer />

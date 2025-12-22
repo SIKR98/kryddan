@@ -22,7 +22,7 @@
   class:is-open={isOpen}
   aria-label="Close BOM"
   on:click={onClose}
-/>
+></button>
 
 <!-- Drawer -->
 <aside
