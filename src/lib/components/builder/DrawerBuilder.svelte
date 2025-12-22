@@ -23,7 +23,7 @@
   <!-- Pinned button in top-right of builder area (with badge + shake) -->
   <button
     type="button"
-    class="absolute right-3 top-3 z-20 radius-m bg-primary-accent/80 backdrop-blur px-3 py-2 border border-primary/10 ui-hover"
+    class="absolute right-0 top-0 z-20 radius-m bg-primary-accent/80 backdrop-blur border border-primary/10 ui-hover"
     on:click={onToggleBom}
     aria-expanded={isBomOpen}
     aria-controls="bom-drawer"
