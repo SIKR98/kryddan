@@ -6,7 +6,6 @@
   import InfoSection from '$lib/components/InfoSection.svelte';
   import DrawerPreset from '$lib/components/DrawerPreset.svelte';
   import DrawerBuilder from '$lib/components/builder/DrawerBuilder.svelte';
-  import BomDrawer from '$lib/components/BomDrawer.svelte';
   import AboutSection from '$lib/components/AboutSection.svelte';
   import Footer from '$lib/components/Footer.svelte';
 
@@ -188,71 +187,60 @@
       ? 'position: fixed; top: 0; left: 0; right: 0;'
       : `position: absolute; top: ${navAbsTop}px; left: 0; right: 0;`}
   >
-    <!-- keep same horizontal alignment as grid padding -->
     <div class="bg-primary-accent/80 backdrop-blur border-b border-primary/10">
       <Navbar {navItems} onNavigate={scrollToSection} />
     </div>
   </div>
 
   <!-- ROW 1: Home (Hero) -->
-    <section id="home" class="h-[100vh] w-full grid">
-        <div class="grid h-full w-full justify-items-center items-start md:items-center">
-            <Hero {scrollToBuilder} />
-        </div>
-    </section>
+  <section id="home" class="h-[100vh] w-full grid">
+    <div class="grid h-full w-full justify-items-center items-start md:items-center">
+      <Hero {scrollToBuilder} />
+    </div>
+  </section>
 
   <!-- ROW 2: Features -->
   <section class="h-[100vh] w-full grid place-items-center">
     <InfoSection />
   </section>
 
-<!-- ROW 3: Builder -->
-<section id="builder" class="h-[100vh] w-full grid place-items-center py-m">
-  <div class="flex h-full w-full flex-col">
-    <!-- Preset: fixed height -->
-    <div class="flex-none grid justify-items-center items-start text-center">
-      <DrawerPreset bind:preset bind:widthMm bind:depthMm bind:heightMm bind:hasCornerProfile />
+  <!-- ROW 3: Builder -->
+  <section id="builder" class="h-[100vh] w-full grid place-items-center py-m">
+    <div class="flex h-full w-full flex-col">
+      <!-- Preset -->
+      <div class="flex-none grid justify-items-center items-start text-center">
+        <DrawerPreset bind:preset bind:widthMm bind:depthMm bind:heightMm bind:hasCornerProfile />
+      </div>
+
+      <!-- Builder: takes remaining space -->
+      <div class="flex-1 min-h-0 grid place-items-center overflow-hidden md:overflow-visible pt-s md:pt-m">
+        <DrawerBuilder
+          bind:widthMm
+          bind:depthMm
+          bind:heightMm
+          bind:hasCornerProfile
+          onAddModule={simulateAddModule}
+          isBomOpen={isBomOpen}
+          moduleCount={moduleCount}
+          bumpKey={bumpKey}
+          onToggleBom={toggleBom}
+          onCloseBom={closeBom}
+        />
+      </div>
     </div>
+  </section>
 
-    <!-- Builder: takes remaining space -->
-    <div class="flex-1 min-h-0 grid place-items-center overflow-hidden md:overflow-visible pt-s md:pt-m">
-      <DrawerBuilder
-        bind:widthMm
-        bind:depthMm
-        bind:heightMm
-        bind:hasCornerProfile
-        onAddModule={simulateAddModule}
-      />
+  <!-- ROW 4: About (100vh) -->
+  <section id="about" class="h-[100vh] w-full grid place-items-center">
+    <AboutSection />
+  </section>
+
+  <!-- Footer (full-bleed 100vw) -->
+  <section class="w-full">
+    <div class="-mx-s md:-mx-xl">
+      <Footer />
     </div>
-  </div>
-</section>
-
-
-<!-- ROW 4: About (100vh) -->
-<section id="about" class="h-[100vh] w-full grid place-items-center">
-  <AboutSection />
-</section>
-
-<!-- Footer (full-bleed 100vw) -->
-<section class="w-full">
-  <div class="-mx-s md:-mx-xl">
-    <Footer />
-  </div>
-</section>
-
-
-
-
+  </section>
 </div>
-
-<!-- BOM Drawer (unchanged) -->
-<BomDrawer
-  isOpen={isBomOpen}
-  {moduleCount}
-  {bumpKey}
-  title="Your build"
-  onToggle={toggleBom}
-  onClose={closeBom}
-/>
 
 <style></style>

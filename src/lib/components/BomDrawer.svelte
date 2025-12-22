@@ -1,107 +1,99 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
+
   export let isOpen = false;
   export let moduleCount = 0;
-
-  // Change this value to restart the badge animation (keyed block)
-  export let bumpKey = 0;
-
-  export let onToggle: () => void = () => {};
   export let onClose: () => void = () => {};
-
-  // Optional: You can pass additional content later (BOM rows, cart summary, etc.)
   export let title = 'Your build';
+
+  onMount(() => {
+    const onScroll = () => {
+      if (isOpen) onClose();
+    };
+
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  });
 </script>
 
-<!-- Toggle button -->
-<div
-  class="fixed top-6 z-50"
-  style={isOpen ? `right: calc(min(40vw, 420px) + 1.5rem);` : 'right: 1.5rem;'}
+<!-- Overlay -->
+<button
+  class="overlay"
+  class:is-open={isOpen}
+  aria-label="Close BOM"
+  on:click={onClose}
+/>
+
+<!-- Drawer -->
+<aside
+  id="bom-drawer"
+  class="drawer"
+  class:is-open={isOpen}
+  aria-label="Bill of materials"
 >
-  <button
-    class="radius-m border-default focus-ring bg-white px-3 py-2"
-    type="button"
-    on:click={onToggle}
-    aria-expanded={isOpen}
-    aria-controls="bom-drawer"
-    aria-label={isOpen ? 'Close BOM' : 'Open BOM'}
-  >
-    <div class="relative flex items-center gap-2">
-      <span class="body-text">{isOpen ? '→' : '←'}</span>
-      <span class="body-text">BOM</span>
-
-      {#key bumpKey}
-        <span
-          class="radius-l absolute -right-3 -top-3 grid h-6 min-w-[24px] place-items-center bg-primary px-2 text-xs text-primary-contrast"
-          class:shake={moduleCount > 0}
-        >
-          {moduleCount}
-        </span>
-      {/key}
+  <div class="h-full padding-m flex flex-col">
+    <div class="flex items-center justify-between">
+      <h3 class="heading-3">{title}</h3>
+      <button class="body-text ui-hover" on:click={onClose}>Close</button>
     </div>
-  </button>
-</div>
 
-{#if isOpen}
-  <!-- Click-away overlay -->
-  <button
-    class="fixed inset-0 z-40 bg-black/0"
-    type="button"
-    aria-label="Close BOM"
-    on:click={onClose}
-  ></button>
+    <p class="body-text margin-y-s">
+      This panel will list module counts (BOM) and act as a cart summary.
+    </p>
 
-  <!-- Drawer panel -->
-  <aside
-    id="bom-drawer"
-    class="radius-l border-default fixed top-6 right-6 z-50 h-[calc(100vh-3rem)] bg-white shadow-xl"
-    style="width: min(40vw, 420px);"
-    aria-label="Bill of materials"
-  >
-    <div class="h-full padding-m flex flex-col">
-      <div class="flex items-center justify-between">
-        <h3 class="heading-3">{title}</h3>
-        <button class="body-text ui-hover" type="button" on:click={onClose}>Close</button>
-      </div>
-
-      <p class="body-text margin-y-s">
-        This panel will list module counts (BOM) and act as a cart summary.
-      </p>
-
-      <div class="margin-y-m radius-m border-subtle bg-secondary-contrast padding-m">
-        <div class="body-text">
-          Modules in drawer: <span class="text-primary">{moduleCount}</span>
-        </div>
-      </div>
-
-      <div class="mt-auto">
-        <button
-          class="radius-m focus-ring w-full bg-primary px-4 py-3 text-primary-contrast transition duration-200 ease-out hover:opacity-90"
-          type="button"
-        >
-          Add all to cart (placeholder)
-        </button>
-      </div>
+    <div class="margin-y-m radius-m border-subtle bg-secondary-contrast padding-m">
+      Modules in drawer: <span class="text-primary">{moduleCount}</span>
     </div>
-  </aside>
-{/if}
+
+    <div class="mt-auto">
+      <button class="radius-m w-full bg-primary px-4 py-3 text-primary-contrast">
+        Add all to cart
+      </button>
+    </div>
+  </div>
+</aside>
 
 <style>
-  .shake {
-    animation: shake 220ms ease-out;
+  /* ===== Overlay ===== */
+  .overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    background: rgba(0,0,0,0);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 120ms ease;
   }
 
-  @keyframes shake {
-    0% {
-      transform: translateX(0);
-    }
-    30% {
-      transform: translateX(-2px);
-    }
-    60% {
-      transform: translateX(2px);
-    }
-    100% {
-      transform: translateX(0);
-    }
+  .overlay.is-open {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  /* ===== Drawer ===== */
+  .drawer {
+    position: fixed;
+    top: 1.5rem;
+    right: 1.5rem;
+    z-index: 50;
+    height: calc(100vh - 3rem);
+    width: min(40vw, 420px);
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 10px 40px rgba(0,0,0,.15);
+
+    transform: translateX(24px);
+    opacity: 0;
+    pointer-events: none;
+
+    transition:
+      transform 220ms ease,
+      opacity 220ms ease;
+  }
+
+  .drawer.is-open {
+    transform: translateX(0);
+    opacity: 1;
+    pointer-events: auto;
   }
 </style>
