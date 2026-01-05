@@ -24,7 +24,7 @@
   let preset: DrawerPresetValue = 'custom';
 
   let widthMm = 600;
-  let depthMm = 450;
+  let depthMm = 600;
   let heightMm = 100;
   let hasCornerProfile: 'yes' | 'no' = 'no';
 
