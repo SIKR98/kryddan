@@ -1,1 +1,249 @@
+@config '../../tailwind.config.js';
+
+/* Global styles and reusable utilities for the whole project.
+   These are explicit classes (we do NOT style h1/h2/p tags globally),
+   so components stay predictable and portable. */
+
 @import 'tailwindcss';
+
+/* ------------------------------------------------------------
+   Base reset (clean slate, while keeping accessibility in mind)
+   ------------------------------------------------------------ */
+@layer base {
+	/* Consistent box model */
+	*,
+	*::before,
+	*::after {
+		box-sizing: border-box;
+	}
+
+	/* Remove default page spacing */
+	html,
+	body {
+		margin: 0;
+		padding: 0;
+	}
+
+	/* Improve text rendering */
+	body {
+		-webkit-font-smoothing: antialiased;
+		-moz-osx-font-smoothing: grayscale;
+		text-rendering: optimizeLegibility;
+	}
+
+	/* Media elements behave predictably */
+	img,
+	picture,
+	video,
+	canvas,
+	svg {
+		display: block;
+		max-width: 100%;
+	}
+
+	/* Form elements inherit typography */
+	input,
+	button,
+	textarea,
+	select {
+		font: inherit;
+		color: inherit;
+	}
+
+	input,
+	textarea,
+	button {
+		appearance: none;
+		-webkit-appearance: none;
+		-moz-appearance: none;
+		background: transparent;
+		border-radius: 0;
+		border: 0;
+		outline: none;
+	}
+
+	/* Restore native appearance for radios and checkboxes (for now) */
+	input[type='radio'],
+	input[type='checkbox'] {
+		appearance: auto;
+		-webkit-appearance: auto;
+		-moz-appearance: auto;
+		background: initial;
+		border-radius: initial;
+		border: initial;
+	}
+
+	/* Buttons are clickable and consistent */
+	button {
+		cursor: pointer;
+	}
+
+	/* Links */
+	a {
+		color: inherit;
+		text-decoration: none;
+	}
+	select {
+		appearance: auto;
+		-webkit-appearance: menulist;
+	}
+}
+
+/* ------------------------------------------------------------
+   Reusable design-system utilities
+   ------------------------------------------------------------ */
+@layer utilities {
+	/* Typography */
+	.heading-1 {
+		@apply font-primary text-4xl leading-tight tracking-tight text-primary-contrast;
+	}
+
+	.heading-2 {
+		@apply font-primary text-2xl leading-snug tracking-tight text-primary-contrast;
+	}
+
+	.heading-3 {
+		@apply font-primary text-xl leading-snug text-primary-contrast;
+	}
+
+	.body-text {
+		@apply font-secondary text-base leading-relaxed text-secondary-contrast;
+	}
+
+	.small-text {
+		@apply font-secondary text-sm leading-relaxed text-secondary-contrast;
+	}
+
+	/* Spacing: margin (xs/s/m/l/xl) */
+	.margin-xs {
+		@apply m-xs;
+	}
+	.margin-s {
+		@apply m-s;
+	}
+	.margin-m {
+		@apply m-m;
+	}
+	.margin-l {
+		@apply m-l;
+	}
+	.margin-xl {
+		@apply m-xl;
+	}
+
+	.margin-y-xs {
+		@apply my-xs;
+	}
+	.margin-y-s {
+		@apply my-s;
+	}
+	.margin-y-m {
+		@apply my-m;
+	}
+	.margin-y-l {
+		@apply my-l;
+	}
+	.margin-y-xl {
+		@apply my-xl;
+	}
+
+	.margin-x-xs {
+		@apply mx-xs;
+	}
+	.margin-x-s {
+		@apply mx-s;
+	}
+	.margin-x-m {
+		@apply mx-m;
+	}
+	.margin-x-l {
+		@apply mx-l;
+	}
+	.margin-x-xl {
+		@apply mx-xl;
+	}
+
+	/* Spacing: padding (xs/s/m/l/xl) */
+	.padding-xs {
+		@apply p-xs;
+	}
+	.padding-s {
+		@apply p-s;
+	}
+	.padding-m {
+		@apply p-m;
+	}
+	.padding-l {
+		@apply p-l;
+	}
+	.padding-xl {
+		@apply p-xl;
+	}
+
+	.padding-y-xs {
+	@apply py-xs;
+	}
+	.padding-y-s {
+		@apply py-s;
+	}
+	.padding-y-m {
+		@apply py-m;
+	}
+	.padding-y-l {
+		@apply py-l;
+	}
+	.padding-y-xl {
+		@apply py-xl;
+	}
+
+	.padding-x-xs {
+		@apply px-xs;
+	}
+	.padding-x-s {
+		@apply px-s;
+	}
+	.padding-x-m {
+		@apply px-m;
+	}
+	.padding-x-l {
+		@apply px-l;
+	}
+	.padding-x-xl {
+		@apply px-xl;
+	}
+
+
+	/* Border + radius */
+	.border-default {
+		@apply border border-secondary-contrast;
+	}
+
+	.border-subtle {
+		@apply border border-secondary-contrast;
+	}
+
+	.radius-s {
+		@apply rounded-s;
+	}
+	.radius-m {
+		@apply rounded-m;
+	}
+	.radius-l {
+		@apply rounded-l;
+	}
+
+	/* UI transitions (hover/focus) */
+	.ui-hover {
+		@apply transition duration-200 ease-out hover:text-hover;
+	}
+
+	/* Accessible focus ring (use alongside inputs/buttons) */
+	.focus-ring {
+		@apply focus:outline-none focus-visible:ring-2 focus-visible:ring-hover focus-visible:ring-offset-2 focus-visible:ring-offset-secondary-contrast;
+	}
+
+	/* Fixed-width numeric input for drawer dimensions (mm) */
+	.dimension-input {
+		@apply max-h-[40px] w-full max-w-[120px] rounded-m border border-primary/15 bg-white px-3 py-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-hover focus-visible:ring-offset-2 focus-visible:ring-offset-secondary-contrast;
+	}
+}
