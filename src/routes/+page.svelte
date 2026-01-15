@@ -25,7 +25,7 @@
 
   let widthMm = 600;
   let depthMm = 600;
-  let heightMm = 100;
+  let heightMm = 56;
   let hasCornerProfile: 'yes' | 'no' = 'no';
 
   // BOM / Cart-like drawer state
