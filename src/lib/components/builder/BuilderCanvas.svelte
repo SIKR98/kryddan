@@ -13,6 +13,9 @@
   const WALL_MM = 10;
   const mm = (v: number) => v / 1000;
 
+  // Rotation helper: degrees -> radians
+  const deg = (d: number) => (d * Math.PI) / 180;
+
   // --- Height / z-fighting tuning ---
   const EPSILON_M = mm(0.2); // 0.2mm
   const HOVER_LIFT_MM = 100; // tweakable
@@ -57,15 +60,36 @@
     rotation: [number, number, number]; // radians
   };
 
+  // Initial orientation:
+  // Fusion/Tinkercad typically behaves like Z-up. Three is Y-up.
+  // A common correction is -90° around X.
+  const DEFAULT_STL_ROTATION: [number, number, number] = [deg(-90), 0, 0];
+
   const modulesCatalog: ModuleDef[] = [
-    { id: "tile_2_small", label: "Tile 2 Small", file: "/modules/tile_2_small.stl", rotation: [Math.PI / 2, 0, Math.PI / 2] },
-    { id: "tile_3_small", label: "Tile 3 Small", file: "/modules/tile_3_small.stl", rotation: [0, 0, 0] },
-    { id: "tile_3_small_profile",
+    {
+      id: "tile_2_small",
+      label: "Tile 2 Small",
+      file: "/modules/tile_2_small.stl",
+      rotation: DEFAULT_STL_ROTATION
+    },
+    {
+      id: "tile_3_small",
+      label: "Tile 3 Small",
+      file: "/modules/tile_3_small.stl",
+      rotation: DEFAULT_STL_ROTATION
+    },
+    {
+      id: "tile_3_small_profile",
       label: "Tile 3 Small Profile",
       file: "/modules/tile_3_small_profile.stl",
-      rotation: [0, 0, 0]
+      rotation: DEFAULT_STL_ROTATION
     },
-    { id: "tile_3_small_slot", label: "Tile 3 Small Slot", file: "/modules/tile_3_small_slot.stl", rotation: [0, 0, 0] }
+    {
+      id: "tile_3_small_slot",
+      label: "Tile 3 Small Slot",
+      file: "/modules/tile_3_small_slot.stl",
+      rotation: DEFAULT_STL_ROTATION
+    }
   ];
 
   // Cache loaded STL geometry + dims so we can instantiate quickly
@@ -108,11 +132,8 @@
             const hM = size.y;
             const dM = size.z;
 
-            // If we apply rotation to the mesh, bbox changes.
-            // Robust approach: store geometry as-is (scaled), and apply rotation on a group wrapper;
-            // BUT for dims/footprint we want post-rotation sizes.
-            //
-            // Since you want a robust system: we compute "effective bbox" by creating a temp Object3D,
+            // Since we apply rotation to the mesh, bbox changes.
+            // Robust approach: compute "effective bbox" by creating a temp Object3D,
             // applying rotation, and measuring its Box3 once.
             const temp = new THREE.Mesh(geometry);
             temp.rotation.set(def.rotation[0], def.rotation[1], def.rotation[2]);
@@ -337,7 +358,6 @@
     group.rotation.set(info.rotation[0], info.rotation[1], info.rotation[2]);
 
     // Offset so bottom sits at y=0 in group local space, then group will be positioned at y=EPSILON_M
-    // We apply this as a translate on the child mesh.
     mesh.position.y = info.bottomOffsetY;
 
     // Dimensions used for collision/snap/footprint
@@ -586,7 +606,7 @@
     const hit = intersectDragPlane();
     if (!hit) return;
 
-    const { wM, dM, hM } = getDims(ghost);
+    const { wM, dM } = getDims(ghost);
     const solved = solvePlacement(hit.x, hit.z, wM, dM, null);
 
     showFootprint(wM, dM, solved.x, solved.z, solved.valid);
@@ -610,7 +630,7 @@
     ev.preventDefault();
 
     if (ghost && ghost.visible) {
-      const { wM, dM, hM } = getDims(ghost);
+      const { wM, dM } = getDims(ghost);
       const x = ghost.position.x;
       const z = ghost.position.z;
 
