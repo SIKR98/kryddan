@@ -3,6 +3,7 @@
   import { browser } from "$app/environment";
   import * as THREE from "three";
   import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+  import { STLLoader } from "three/addons/loaders/STLLoader.js";
 
   export let widthMm: number;
   export let depthMm: number;
@@ -18,9 +19,12 @@
   const HOVER_LIFT_M = mm(HOVER_LIFT_MM);
 
   // Snapping / collision tuning (MVP)
-  const SNAP_TOLERANCE = mm(10); // 6mm
-  const SNAP_OVERLAP_MIN = mm(9); // require overlap on the other axis for module-to-module snaps
-  const FOOTPRINT_Y = EPSILON_M; // shadow sits just above grid to avoid flicker
+  const SNAP_TOLERANCE = mm(10);
+  const SNAP_OVERLAP_MIN = mm(9);
+  const FOOTPRINT_Y = EPSILON_M;
+
+  // STL units: Fusion exports in mm, scene uses meters
+  const STL_MM_TO_M = 0.001;
 
   let host: HTMLDivElement;
 
@@ -35,28 +39,118 @@
   // Drawer
   let drawerGroup: THREE.Group | null = null;
 
-  // Modules placed in drawer (placeholder boxes for now)
-  let modules: THREE.Mesh[] = [];
-
   // Drawer inner bounds in meters (updated when props change)
   let innerWm = mm(400);
   let innerDm = mm(300);
   let innerHm = mm(80);
 
   // Ray/pointer
-  const dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0); // y=0 (grid reference)
+  const dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
   const raycaster = new THREE.Raycaster();
   const pointerNdc = new THREE.Vector2();
 
-  // Palette
-  type PaletteItem = { id: string; label: string; wMm: number; dMm: number; hMm: number };
+  // ===== Module config (easy to add more later) =====
+  type ModuleDef = {
+    id: string;
+    label: string;
+    file: string; // under /modules/...
+    rotation: [number, number, number]; // radians
+  };
 
-  // New module sizes (W×D×H)
-  const palette: PaletteItem[] = [
-    { id: "150x100", label: "150×100", wMm: 150, dMm: 100, hMm: 20 },
-    { id: "150x150", label: "150×150", wMm: 150, dMm: 150, hMm: 20 },
-    { id: "150x200", label: "150×200", wMm: 150, dMm: 200, hMm: 20 }
+  const modulesCatalog: ModuleDef[] = [
+    { id: "tile_2_small", label: "Tile 2 Small", file: "/modules/tile_2_small.stl", rotation: [Math.PI / 2, 0, Math.PI / 2] },
+    { id: "tile_3_small", label: "Tile 3 Small", file: "/modules/tile_3_small.stl", rotation: [0, 0, 0] },
+    { id: "tile_3_small_profile",
+      label: "Tile 3 Small Profile",
+      file: "/modules/tile_3_small_profile.stl",
+      rotation: [0, 0, 0]
+    },
+    { id: "tile_3_small_slot", label: "Tile 3 Small Slot", file: "/modules/tile_3_small_slot.stl", rotation: [0, 0, 0] }
   ];
+
+  // Cache loaded STL geometry + dims so we can instantiate quickly
+  type LoadedModule = {
+    id: string;
+    geom: THREE.BufferGeometry;
+    wM: number;
+    dM: number;
+    hM: number;
+    // offset to put bottom at y=0 (in local space, meters)
+    bottomOffsetY: number;
+    rotation: [number, number, number];
+  };
+
+  const stlLoader = new STLLoader();
+  const loaded = new Map<string, LoadedModule>();
+  let stlReady = false;
+
+  async function loadAllStls() {
+    stlReady = false;
+
+    const tasks = modulesCatalog.map((def) => {
+      return new Promise<void>((resolve, reject) => {
+        stlLoader.load(
+          def.file,
+          (geometry) => {
+            // Convert mm units to meters
+            geometry.scale(STL_MM_TO_M, STL_MM_TO_M, STL_MM_TO_M);
+
+            // Ensure normals for nicer shading
+            geometry.computeVertexNormals();
+
+            // Compute bbox in meters
+            geometry.computeBoundingBox();
+            const bb = geometry.boundingBox!;
+            const size = new THREE.Vector3();
+            bb.getSize(size);
+
+            const wM = size.x;
+            const hM = size.y;
+            const dM = size.z;
+
+            // If we apply rotation to the mesh, bbox changes.
+            // Robust approach: store geometry as-is (scaled), and apply rotation on a group wrapper;
+            // BUT for dims/footprint we want post-rotation sizes.
+            //
+            // Since you want a robust system: we compute "effective bbox" by creating a temp Object3D,
+            // applying rotation, and measuring its Box3 once.
+            const temp = new THREE.Mesh(geometry);
+            temp.rotation.set(def.rotation[0], def.rotation[1], def.rotation[2]);
+            const box = new THREE.Box3().setFromObject(temp);
+            const effSize = new THREE.Vector3();
+            box.getSize(effSize);
+
+            const effW = effSize.x;
+            const effH = effSize.y;
+            const effD = effSize.z;
+
+            // bottomOffsetY should place rotated object so its minY sits at y=0 in local wrapper space
+            const bottomOffsetY = -box.min.y;
+
+            loaded.set(def.id, {
+              id: def.id,
+              geom: geometry,
+              wM: effW,
+              dM: effD,
+              hM: effH,
+              bottomOffsetY,
+              rotation: def.rotation
+            });
+
+            resolve();
+          },
+          undefined,
+          (err) => reject(err)
+        );
+      });
+    });
+
+    await Promise.all(tasks);
+    stlReady = true;
+  }
+
+  // ===== Placed modules =====
+  let modules: THREE.Object3D[] = []; // could be Mesh or Group; we use Object3D for flexibility
 
   // Footprint (single reusable mesh)
   let footprint: THREE.Mesh | null = null;
@@ -82,7 +176,6 @@
   function showFootprint(wM: number, dM: number, x: number, z: number, valid: boolean) {
     if (!footprint) return;
 
-    // PlaneGeometry is XY; after rotation it's XZ => width maps to X, height maps to Z
     footprint.scale.set(wM, dM, 1);
     footprint.position.set(x, FOOTPRINT_Y, z);
 
@@ -99,13 +192,13 @@
 
   // Drag-from-palette state
   let paletteDragActive = false;
-  let paletteDragItem: PaletteItem | null = null;
-  let ghost: THREE.Mesh | null = null;
+  let paletteDragItem: ModuleDef | null = null;
+  let ghost: THREE.Object3D | null = null;
 
   // Drag-existing-module state
   let moduleDragActive = false;
-  let draggedModule: THREE.Mesh | null = null;
-  let dragOffset = new THREE.Vector2(0, 0); // offset in XZ from pointer hit to module center
+  let draggedModule: THREE.Object3D | null = null;
+  let dragOffset = new THREE.Vector2(0, 0);
   let lastValidPos = new THREE.Vector3();
 
   function buildDrawer(innerW: number, innerD: number, innerH: number) {
@@ -123,9 +216,7 @@
       opacity
     });
 
-    // IMPORTANT:
-    // We want the TOP of the bottom plate to be at y = -EPSILON_M.
-    // Bottom plate thickness is "wall", so its center must be at y = -(wall/2) - EPSILON_M.
+    // Top of bottom plate at y = -EPSILON_M
     const bottomCenterY = -(wall / 2) - EPSILON_M;
 
     // Bottom
@@ -136,8 +227,6 @@
       group.add(mesh);
     }
 
-    // Walls sit on the top plane of the bottom plate => y = -EPSILON_M
-    // Their height is H + wall (same as before), but shifted down by EPSILON_M.
     const wallCenterY = (H + wall) / 2 - EPSILON_M;
 
     // Left wall
@@ -172,7 +261,7 @@
       group.add(mesh);
     }
 
-    // Inner bounds helper (wireframe box) should represent interior space from y=-EPS to y=H-EPS
+    // Inner bounds helper (wireframe box)
     {
       const innerGeo = new THREE.BoxGeometry(W, H, D);
       const edges = new THREE.EdgesGeometry(innerGeo);
@@ -217,45 +306,57 @@
     }
   }
 
-  function makeModuleMesh(wMm: number, dMm: number, hMm: number, kind: "ghost" | "solid") {
-    const W = mm(wMm);
-    const D = mm(dMm);
-    const H = mm(hMm);
-
-    const geo = new THREE.BoxGeometry(W, H, D);
-    const mat =
-      kind === "ghost"
-        ? new THREE.MeshStandardMaterial({
-            transparent: true,
-            opacity: 0.55,
-            color: new THREE.Color(0x222222)
-          })
-        : new THREE.MeshStandardMaterial({
-            transparent: true,
-            opacity: 0.92,
-            color: new THREE.Color(0x222222)
-          });
-
-    const mesh = new THREE.Mesh(geo, mat);
-
-    // Module bottom should be at y = +EPSILON_M (just above grid)
-    // => center y = EPSILON_M + H/2
-    mesh.position.set(0, EPSILON_M + H / 2, 0);
-
-    // Store dimensions on the mesh (used for snapping/collision/clamp)
-    mesh.userData.wM = W;
-    mesh.userData.dM = D;
-    mesh.userData.hM = H;
-
-    return mesh;
+  function disposeObject(obj: THREE.Object3D) {
+    scene?.remove(obj);
+    obj.traverse((o) => {
+      const anyObj = o as any;
+      if (anyObj.geometry?.dispose) anyObj.geometry.dispose();
+      if (anyObj.material) {
+        if (Array.isArray(anyObj.material)) anyObj.material.forEach((m: any) => m.dispose?.());
+        else anyObj.material.dispose?.();
+      }
+    });
   }
 
-  function disposeMesh(mesh: THREE.Mesh) {
-    scene?.remove(mesh);
-    (mesh.geometry as THREE.BufferGeometry).dispose();
-    const mat = mesh.material;
-    if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
-    else mat.dispose();
+  // Create a renderable STL instance (ghost or solid)
+  function makeModuleInstance(defId: string, kind: "ghost" | "solid") {
+    const info = loaded.get(defId);
+    if (!info) return null;
+
+    const mat =
+      kind === "ghost"
+        ? new THREE.MeshStandardMaterial({ transparent: true, opacity: 0.55, color: new THREE.Color(0x222222) })
+        : new THREE.MeshStandardMaterial({ transparent: true, opacity: 0.92, color: new THREE.Color(0x222222) });
+
+    const mesh = new THREE.Mesh(info.geom, mat);
+
+    // Wrap in a group so we can apply rotation and a bottom offset cleanly
+    const group = new THREE.Group();
+    group.add(mesh);
+
+    group.rotation.set(info.rotation[0], info.rotation[1], info.rotation[2]);
+
+    // Offset so bottom sits at y=0 in group local space, then group will be positioned at y=EPSILON_M
+    // We apply this as a translate on the child mesh.
+    mesh.position.y = info.bottomOffsetY;
+
+    // Dimensions used for collision/snap/footprint
+    group.userData.wM = info.wM;
+    group.userData.dM = info.dM;
+    group.userData.hM = info.hM;
+    group.userData.defId = defId;
+
+    // Default: bottom at y=EPSILON_M
+    group.position.set(0, EPSILON_M, 0);
+
+    return group;
+  }
+
+  function getDims(obj: THREE.Object3D) {
+    const wM = obj.userData.wM ?? 0.15;
+    const dM = obj.userData.dM ?? 0.1;
+    const hM = obj.userData.hM ?? 0.02;
+    return { wM, dM, hM };
   }
 
   function clientToNdc(clientX: number, clientY: number) {
@@ -282,22 +383,15 @@
 
   type AABB2 = { minX: number; maxX: number; minZ: number; maxZ: number };
 
-  function getDims(mesh: THREE.Mesh) {
-    const wM = mesh.userData.wM ?? 0.15;
-    const dM = mesh.userData.dM ?? 0.1;
-    const hM = mesh.userData.hM ?? 0.02;
-    return { wM, dM, hM };
-  }
-
   function getAABBAt(x: number, z: number, wM: number, dM: number): AABB2 {
     const halfW = wM / 2;
     const halfD = dM / 2;
     return { minX: x - halfW, maxX: x + halfW, minZ: z - halfD, maxZ: z + halfD };
   }
 
-  function getAABB(mesh: THREE.Mesh): AABB2 {
-    const { wM, dM } = getDims(mesh);
-    return getAABBAt(mesh.position.x, mesh.position.z, wM, dM);
+  function getAABB(obj: THREE.Object3D): AABB2 {
+    const { wM, dM } = getDims(obj);
+    return getAABBAt(obj.position.x, obj.position.z, wM, dM);
   }
 
   function overlap1D(aMin: number, aMax: number, bMin: number, bMax: number) {
@@ -323,13 +417,7 @@
     };
   }
 
-  function snapXZ(
-    xIn: number,
-    zIn: number,
-    wM: number,
-    dM: number,
-    ignoreMesh: THREE.Mesh | null
-  ): { x: number; z: number } {
+  function snapXZ(xIn: number, zIn: number, wM: number, dM: number, ignoreObj: THREE.Object3D | null) {
     let x = xIn;
     let z = zIn;
 
@@ -375,20 +463,17 @@
     const movingAabb = getAABBAt(x, z, wM, dM);
 
     for (const other of modules) {
-      if (ignoreMesh && other === ignoreMesh) continue;
+      if (ignoreObj && other === ignoreObj) continue;
 
       const otherAabb = getAABB(other);
 
-      // For X snaps: require overlap on Z
+      // X snaps require Z overlap
       const zOverlap = overlap1D(movingAabb.minZ, movingAabb.maxZ, otherAabb.minZ, otherAabb.maxZ);
       if (zOverlap >= SNAP_OVERLAP_MIN) {
-        // Edge-to-edge (pack)
-        const cand1 = otherAabb.maxX + halfW; // place our left edge to other's right edge
-        const cand2 = otherAabb.minX - halfW; // place our right edge to other's left edge
-
-        // Edge align
-        const cand3 = otherAabb.minX + halfW; // align left edges
-        const cand4 = otherAabb.maxX - halfW; // align right edges
+        const cand1 = otherAabb.maxX + halfW;
+        const cand2 = otherAabb.minX - halfW;
+        const cand3 = otherAabb.minX + halfW;
+        const cand4 = otherAabb.maxX - halfW;
 
         for (const cx of [cand1, cand2, cand3, cand4]) {
           const d = Math.abs(x - cx);
@@ -399,12 +484,11 @@
         }
       }
 
-      // For Z snaps: require overlap on X
+      // Z snaps require X overlap
       const xOverlap = overlap1D(movingAabb.minX, movingAabb.maxX, otherAabb.minX, otherAabb.maxX);
       if (xOverlap >= SNAP_OVERLAP_MIN) {
         const cand1 = otherAabb.maxZ + halfD;
         const cand2 = otherAabb.minZ - halfD;
-
         const cand3 = otherAabb.minZ + halfD;
         const cand4 = otherAabb.maxZ - halfD;
 
@@ -424,7 +508,7 @@
     return { x, z };
   }
 
-  function isCollisionAt(x: number, z: number, wM: number, dM: number, ignore: THREE.Mesh | null) {
+  function isCollisionAt(x: number, z: number, wM: number, dM: number, ignore: THREE.Object3D | null) {
     const a = getAABBAt(x, z, wM, dM);
     for (const other of modules) {
       if (ignore && other === ignore) continue;
@@ -445,23 +529,11 @@
     return x >= minX && x <= maxX && z >= minZ && z <= maxZ;
   }
 
-  function solvePlacement(
-    rawX: number,
-    rawZ: number,
-    wM: number,
-    dM: number,
-    ignore: THREE.Mesh | null
-  ): { x: number; z: number; valid: boolean } {
-    // 1) clamp
+  function solvePlacement(rawX: number, rawZ: number, wM: number, dM: number, ignore: THREE.Object3D | null) {
     let { x, z } = clampToDrawer(rawX, rawZ, wM, dM);
-
-    // 2) snap (nearest wins per axis)
     ({ x, z } = snapXZ(x, z, wM, dM, ignore));
-
-    // 3) clamp again after snap
     ({ x, z } = clampToDrawer(x, z, wM, dM));
 
-    // 4) validate
     const inside = isInsideDrawerAt(x, z, wM, dM);
     const coll = isCollisionAt(x, z, wM, dM, ignore);
     const valid = inside && !coll;
@@ -470,26 +542,26 @@
   }
 
   // ===== Palette drag handlers =====
-  function onPalettePointerDown(item: PaletteItem, ev: PointerEvent) {
+  function onPalettePointerDown(item: ModuleDef, ev: PointerEvent) {
     if (!scene || !renderer || !camera) return;
+    if (!stlReady) return;
 
     ev.preventDefault();
     ev.stopPropagation();
 
     ensureFootprint();
 
-    // lock orbit while we drag from palette
     if (controls) controls.enabled = false;
 
     paletteDragActive = true;
     paletteDragItem = item;
 
-    ghost = makeModuleMesh(item.wMm, item.dMm, item.hMm, "ghost");
+    ghost = makeModuleInstance(item.id, "ghost");
+    if (!ghost) return;
     scene.add(ghost);
 
     (ev.currentTarget as HTMLElement).setPointerCapture(ev.pointerId);
 
-    // Immediately position once (prevents “spawn in center”)
     onPalettePointerMove(ev);
 
     window.addEventListener("pointermove", onPalettePointerMove, { passive: false });
@@ -517,16 +589,19 @@
     const { wM, dM, hM } = getDims(ghost);
     const solved = solvePlacement(hit.x, hit.z, wM, dM, null);
 
-    // Shadow (target) sits just above grid
     showFootprint(wM, dM, solved.x, solved.z, solved.valid);
 
-    // Ghost hovers above by HOVER_LIFT_M, while its “true” placement is shown by the shadow.
-    const ghostY = EPSILON_M + hM / 2 + HOVER_LIFT_M;
-    ghost.position.set(solved.x, ghostY, solved.z);
+    // place ghost hovering
+    ghost.position.set(solved.x, EPSILON_M + HOVER_LIFT_M, solved.z);
 
-    const mat = ghost.material as THREE.MeshStandardMaterial;
-    mat.color.setHex(solved.valid ? 0x222222 : 0x8b1e1e);
-    mat.opacity = solved.valid ? 0.55 : 0.6;
+    // tint ghost
+    ghost.traverse((o) => {
+      const anyObj = o as any;
+      if (anyObj.material?.color?.setHex) {
+        anyObj.material.color.setHex(solved.valid ? 0x222222 : 0x8b1e1e);
+        anyObj.material.opacity = solved.valid ? 0.55 : 0.6;
+      }
+    });
   }
 
   function onPalettePointerUp(ev: PointerEvent) {
@@ -534,27 +609,25 @@
 
     ev.preventDefault();
 
-    // Commit if valid (use solved placement from shadow position)
     if (ghost && ghost.visible) {
       const { wM, dM, hM } = getDims(ghost);
-
-      // The intended XZ is ghost's XZ; Y is irrelevant for validation
       const x = ghost.position.x;
       const z = ghost.position.z;
 
-      const valid =
-        isInsideDrawerAt(x, z, wM, dM) && !isCollisionAt(x, z, wM, dM, null);
+      const valid = isInsideDrawerAt(x, z, wM, dM) && !isCollisionAt(x, z, wM, dM, null);
 
       if (valid) {
-        const placed = makeModuleMesh(paletteDragItem.wMm, paletteDragItem.dMm, paletteDragItem.hMm, "solid");
-        placed.position.set(x, EPSILON_M + hM / 2, z);
-        scene!.add(placed);
-        modules.push(placed);
+        const placed = makeModuleInstance(paletteDragItem.id, "solid");
+        if (placed) {
+          placed.position.set(x, EPSILON_M, z);
+          scene!.add(placed);
+          modules.push(placed);
+        }
       }
     }
 
     if (ghost) {
-      disposeMesh(ghost);
+      disposeObject(ghost);
       ghost = null;
     }
 
@@ -569,8 +642,8 @@
     if (controls) controls.enabled = true;
   }
 
-  // ===== Drag existing modules in drawer =====
-  function pickModuleAt(clientX: number, clientY: number): { mesh: THREE.Mesh; point: THREE.Vector3 } | null {
+  // ===== Drag existing modules in drawer (still floor-bound for now) =====
+  function pickModuleAt(clientX: number, clientY: number): { obj: THREE.Object3D; point: THREE.Vector3 } | null {
     if (!renderer || !camera) return null;
 
     const rect = renderer.domElement.getBoundingClientRect();
@@ -583,11 +656,17 @@
     pointerNdc.set(x * 2 - 1, -(y * 2 - 1));
     raycaster.setFromCamera(pointerNdc, camera);
 
-    const hits = raycaster.intersectObjects(modules, false);
+    const hits = raycaster.intersectObjects(modules, true);
     const h = hits[0];
     if (!h) return null;
 
-    return { mesh: h.object as THREE.Mesh, point: h.point.clone() };
+    // ascend to the top-level module object that is in `modules`
+    let obj: THREE.Object3D = h.object;
+    while (obj.parent && !modules.includes(obj)) obj = obj.parent;
+
+    if (!modules.includes(obj)) return null;
+
+    return { obj, point: h.point.clone() };
   }
 
   function onCanvasPointerDown(ev: PointerEvent) {
@@ -603,13 +682,12 @@
     ensureFootprint();
 
     moduleDragActive = true;
-    draggedModule = hit.mesh;
+    draggedModule = hit.obj;
 
     if (controls) controls.enabled = false;
 
     renderer!.domElement.setPointerCapture(ev.pointerId);
 
-    // compute drag offset from pointer->plane intersection
     const ndcInfo = clientToNdc(ev.clientX, ev.clientY);
     if (ndcInfo && ndcInfo.over) {
       const planeHit = intersectDragPlane();
@@ -648,7 +726,7 @@
     const hit = intersectDragPlane();
     if (!hit) return;
 
-    const { wM, dM, hM } = getDims(draggedModule);
+    const { wM, dM } = getDims(draggedModule);
 
     const rawX = hit.x + dragOffset.x;
     const rawZ = hit.z + dragOffset.y;
@@ -657,15 +735,18 @@
 
     showFootprint(wM, dM, solved.x, solved.z, solved.valid);
 
-    // Existing modules stay “on the floor” (bottom at y=EPSILON_M)
-    draggedModule.position.set(solved.x, EPSILON_M + hM / 2, solved.z);
+    draggedModule.position.set(solved.x, EPSILON_M, solved.z);
 
     if (solved.valid) {
       lastValidPos.copy(draggedModule.position);
     }
 
-    const mat = draggedModule.material as THREE.MeshStandardMaterial;
-    mat.color.setHex(solved.valid ? 0x222222 : 0x8b1e1e);
+    draggedModule.traverse((o) => {
+      const anyObj = o as any;
+      if (anyObj.material?.color?.setHex) {
+        anyObj.material.color.setHex(solved.valid ? 0x222222 : 0x8b1e1e);
+      }
+    });
   }
 
   function onModulePointerUp(ev: PointerEvent) {
@@ -683,8 +764,12 @@
       draggedModule.position.copy(lastValidPos);
     }
 
-    const mat = draggedModule.material as THREE.MeshStandardMaterial;
-    mat.color.setHex(0x222222);
+    draggedModule.traverse((o) => {
+      const anyObj = o as any;
+      if (anyObj.material?.color?.setHex) {
+        anyObj.material.color.setHex(0x222222);
+      }
+    });
 
     hideFootprint();
 
@@ -697,7 +782,19 @@
     if (controls) controls.enabled = true;
   }
 
-  onMount(() => {
+  // Palette preview helper (2D footprint)
+  function previewStyleById(defId: string) {
+    const info = loaded.get(defId);
+    if (!info) return "width:70%;height:70%;";
+    const wMm = info.wM * 1000;
+    const dMm = info.dM * 1000;
+    const max = Math.max(wMm, dMm);
+    const wPct = Math.round((wMm / max) * 100);
+    const dPct = Math.round((dMm / max) * 100);
+    return `width:${wPct}%;height:${dPct}%;`;
+  }
+
+  onMount(async () => {
     if (!browser) return;
 
     scene = new THREE.Scene();
@@ -719,12 +816,14 @@
     controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
 
-    // Grid stays at y=0 (reference plane)
     scene.add(new THREE.GridHelper(2, 20));
     scene.add(new THREE.AxesHelper(0.3));
 
     rebuildDrawer();
     ensureFootprint();
+
+    // Load STL assets (only once on mount)
+    await loadAllStls();
 
     renderer.domElement.addEventListener("pointerdown", onCanvasPointerDown, { capture: true });
 
@@ -767,17 +866,17 @@
     controls?.dispose();
 
     if (ghost) {
-      disposeMesh(ghost);
+      disposeObject(ghost);
       ghost = null;
     }
 
     hideFootprint();
     if (footprint) {
-      disposeMesh(footprint);
+      disposeObject(footprint);
       footprint = null;
     }
 
-    for (const m of modules) disposeMesh(m);
+    for (const m of modules) disposeObject(m);
     modules = [];
 
     if (scene && drawerGroup) {
@@ -789,6 +888,12 @@
       renderer.dispose();
       renderer.domElement.remove();
     }
+
+    // Dispose cached geometries
+    for (const entry of loaded.values()) {
+      entry.geom.dispose();
+    }
+    loaded.clear();
 
     scene = null;
     camera = null;
@@ -806,18 +911,23 @@
   <aside class="palette">
     <div class="palette-header">
       <div class="title">Modules</div>
-      <div class="subtitle">Drag into the drawer</div>
+      <div class="subtitle">{stlReady ? "Drag into the drawer" : "Loading STL..."}</div>
     </div>
 
     <div class="palette-list">
-      {#each palette as m}
+      {#each modulesCatalog as m}
         <button
           type="button"
           class="palette-item radius-m focus-ring"
+          disabled={!stlReady}
           on:pointerdown={(e) => onPalettePointerDown(m, e)}
         >
+          <div class="preview">
+            <div class="preview-box" style={previewStyleById(m.id)}></div>
+          </div>
+
           <div class="label">{m.label}</div>
-          <div class="meta">{m.wMm}×{m.dMm}×{m.hMm} mm</div>
+          <div class="meta">{m.file.replace("/modules/", "")}</div>
         </button>
       {/each}
     </div>
@@ -829,7 +939,7 @@
     height: 100%;
     width: 100%;
     display: grid;
-    grid-template-columns: 1fr 220px;
+    grid-template-columns: 1fr 260px;
     gap: 12px;
     align-items: stretch;
   }
@@ -876,20 +986,49 @@
     transition: opacity 0.15s ease-out, transform 0.15s ease-out;
     user-select: none;
     touch-action: none;
+    display: grid;
+    grid-template-columns: 56px 1fr;
+    grid-template-rows: auto auto;
+    column-gap: 10px;
+    row-gap: 2px;
+    align-items: center;
   }
 
-  .palette-item:hover {
+  .palette-item[disabled] {
+    opacity: 0.55;
+    cursor: not-allowed;
+    transform: none;
+  }
+
+  .palette-item:hover:not([disabled]) {
     opacity: 0.95;
     transform: translateY(-1px);
   }
 
+  .preview {
+    grid-row: 1 / span 2;
+    width: 56px;
+    height: 44px;
+    border-radius: 10px;
+    background: rgba(0, 0, 0, 0.04);
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+  }
+
+  .preview-box {
+    background: rgba(0, 0, 0, 0.35);
+    border-radius: 6px;
+  }
+
   .label {
     font-weight: 600;
+    line-height: 1.1;
   }
 
   .meta {
     opacity: 0.7;
-    font-size: 0.9rem;
-    margin-top: 2px;
+    font-size: 0.85rem;
+    line-height: 1.1;
   }
 </style>
