@@ -60,47 +60,27 @@
     rotation: [number, number, number]; // radians
   };
 
-  // Initial orientation:
-  // Fusion/Tinkercad typically behaves like Z-up. Three is Y-up.
-  // A common correction is -90° around X.
-  const DEFAULT_STL_ROTATION: [number, number, number] = [deg(-90), 0, 0];
+  const DEFAULT_STL_ROT: [number, number, number] = [deg(-90), 0, 0];
 
   const modulesCatalog: ModuleDef[] = [
-    {
-      id: "tile_2_small",
-      label: "Tile 2 Small",
-      file: "/modules/tile_2_small.stl",
-      rotation: DEFAULT_STL_ROTATION
-    },
-    {
-      id: "tile_3_small",
-      label: "Tile 3 Small",
-      file: "/modules/tile_3_small.stl",
-      rotation: DEFAULT_STL_ROTATION
-    },
+    { id: "tile_2_small", label: "Tile 2 Small", file: "/modules/tile_2_small.stl", rotation: DEFAULT_STL_ROT },
+    { id: "tile_3_small", label: "Tile 3 Small", file: "/modules/tile_3_small.stl", rotation: DEFAULT_STL_ROT },
     {
       id: "tile_3_small_profile",
       label: "Tile 3 Small Profile",
       file: "/modules/tile_3_small_profile.stl",
-      rotation: DEFAULT_STL_ROTATION
+      rotation: DEFAULT_STL_ROT
     },
-    {
-      id: "tile_3_small_slot",
-      label: "Tile 3 Small Slot",
-      file: "/modules/tile_3_small_slot.stl",
-      rotation: DEFAULT_STL_ROTATION
-    }
+    { id: "tile_3_small_slot", label: "Tile 3 Small Slot", file: "/modules/tile_3_small_slot.stl", rotation: DEFAULT_STL_ROT }
   ];
 
   // Cache loaded STL geometry + dims so we can instantiate quickly
   type LoadedModule = {
     id: string;
-    geom: THREE.BufferGeometry;
+    geom: THREE.BufferGeometry; // normalized (pivot: footprint-center, bottom on y=0)
     wM: number;
     dM: number;
     hM: number;
-    // offset to put bottom at y=0 (in local space, meters)
-    bottomOffsetY: number;
     rotation: [number, number, number];
   };
 
@@ -108,53 +88,63 @@
   const loaded = new Map<string, LoadedModule>();
   let stlReady = false;
 
+  // Robust normalization (same transform chain as runtime)
+  function normalizeGeometryForRotation(
+    geom: THREE.BufferGeometry,
+    rot: [number, number, number]
+  ): { geom: THREE.BufferGeometry; box: THREE.Box3 } {
+    const g = geom.clone();
+
+    const mesh = new THREE.Mesh(g, new THREE.MeshBasicMaterial());
+    const group = new THREE.Group();
+    group.add(mesh);
+    group.rotation.set(rot[0], rot[1], rot[2]);
+
+    const box = new THREE.Box3();
+    const center = new THREE.Vector3();
+
+    for (let i = 0; i < 3; i++) {
+      box.setFromObject(group);
+      box.getCenter(center);
+
+      const desiredWorldShift = new THREE.Vector3(-center.x, -box.min.y, -center.z);
+
+      const invRot = new THREE.Euler(-rot[0], -rot[1], -rot[2], "XYZ");
+      const localShift = desiredWorldShift.clone().applyEuler(invRot);
+
+      g.translate(localShift.x, localShift.y, localShift.z);
+    }
+
+    box.setFromObject(group);
+    (mesh.material as THREE.Material).dispose();
+
+    return { geom: g, box };
+  }
+
   async function loadAllStls() {
     stlReady = false;
+    loaded.clear();
 
     const tasks = modulesCatalog.map((def) => {
       return new Promise<void>((resolve, reject) => {
         stlLoader.load(
           def.file,
           (geometry) => {
-            // Convert mm units to meters
             geometry.scale(STL_MM_TO_M, STL_MM_TO_M, STL_MM_TO_M);
-
-            // Ensure normals for nicer shading
             geometry.computeVertexNormals();
 
-            // Compute bbox in meters
-            geometry.computeBoundingBox();
-            const bb = geometry.boundingBox!;
+            const normalized = normalizeGeometryForRotation(geometry, def.rotation);
+            const effBox = normalized.box;
+
             const size = new THREE.Vector3();
-            bb.getSize(size);
-
-            const wM = size.x;
-            const hM = size.y;
-            const dM = size.z;
-
-            // Since we apply rotation to the mesh, bbox changes.
-            // Robust approach: compute "effective bbox" by creating a temp Object3D,
-            // applying rotation, and measuring its Box3 once.
-            const temp = new THREE.Mesh(geometry);
-            temp.rotation.set(def.rotation[0], def.rotation[1], def.rotation[2]);
-            const box = new THREE.Box3().setFromObject(temp);
-            const effSize = new THREE.Vector3();
-            box.getSize(effSize);
-
-            const effW = effSize.x;
-            const effH = effSize.y;
-            const effD = effSize.z;
-
-            // bottomOffsetY should place rotated object so its minY sits at y=0 in local wrapper space
-            const bottomOffsetY = -box.min.y;
+            effBox.getSize(size);
 
             loaded.set(def.id, {
               id: def.id,
-              geom: geometry,
-              wM: effW,
-              dM: effD,
-              hM: effH,
-              bottomOffsetY,
+              geom: normalized.geom,
+              wM: size.x,
+              hM: size.y,
+              dM: size.z,
               rotation: def.rotation
             });
 
@@ -171,7 +161,29 @@
   }
 
   // ===== Placed modules =====
-  let modules: THREE.Object3D[] = []; // could be Mesh or Group; we use Object3D for flexibility
+  let modules: THREE.Object3D[] = [];
+
+  // Selection / delete UI
+  let selectedModule: THREE.Object3D | null = null;
+
+  function deleteModule(obj: THREE.Object3D) {
+    if (!scene) return;
+
+    // remove from array
+    const idx = modules.indexOf(obj);
+    if (idx !== -1) modules.splice(idx, 1);
+
+    // clear selection
+    if (selectedModule === obj) selectedModule = null;
+
+    // dispose & remove
+    disposeObject(obj);
+  }
+
+  function onRemoveSelected() {
+    if (!selectedModule) return;
+    deleteModule(selectedModule);
+  }
 
   // Footprint (single reusable mesh)
   let footprint: THREE.Mesh | null = null;
@@ -221,6 +233,7 @@
   let draggedModule: THREE.Object3D | null = null;
   let dragOffset = new THREE.Vector2(0, 0);
   let lastValidPos = new THREE.Vector3();
+  let hasLastValid = false;
 
   function buildDrawer(innerW: number, innerD: number, innerH: number) {
     const group = new THREE.Group();
@@ -351,22 +364,17 @@
 
     const mesh = new THREE.Mesh(info.geom, mat);
 
-    // Wrap in a group so we can apply rotation and a bottom offset cleanly
     const group = new THREE.Group();
     group.add(mesh);
 
     group.rotation.set(info.rotation[0], info.rotation[1], info.rotation[2]);
 
-    // Offset so bottom sits at y=0 in group local space, then group will be positioned at y=EPSILON_M
-    mesh.position.y = info.bottomOffsetY;
-
-    // Dimensions used for collision/snap/footprint
     group.userData.wM = info.wM;
     group.userData.dM = info.dM;
     group.userData.hM = info.hM;
     group.userData.defId = defId;
 
-    // Default: bottom at y=EPSILON_M
+    // bottom at y=EPSILON_M in world
     group.position.set(0, EPSILON_M, 0);
 
     return group;
@@ -422,21 +430,6 @@
     return a.minX < b.maxX && a.maxX > b.minX && a.minZ < b.maxZ && a.maxZ > b.minZ;
   }
 
-  function clampToDrawer(x: number, z: number, wM: number, dM: number) {
-    const halfW = wM / 2;
-    const halfD = dM / 2;
-
-    const minX = -innerWm / 2 + halfW;
-    const maxX = innerWm / 2 - halfW;
-    const minZ = -innerDm / 2 + halfD;
-    const maxZ = innerDm / 2 - halfD;
-
-    return {
-      x: Math.min(maxX, Math.max(minX, x)),
-      z: Math.min(maxZ, Math.max(minZ, z))
-    };
-  }
-
   function snapXZ(xIn: number, zIn: number, wM: number, dM: number, ignoreObj: THREE.Object3D | null) {
     let x = xIn;
     let z = zIn;
@@ -450,7 +443,7 @@
     let bestDz = SNAP_TOLERANCE + 1;
     let bestZ: number | null = null;
 
-    // Wall snaps
+    // Wall snaps (always computed, even if you're currently outside)
     {
       const left = -innerWm / 2 + halfW;
       const right = innerWm / 2 - halfW;
@@ -549,10 +542,13 @@
     return x >= minX && x <= maxX && z >= minZ && z <= maxZ;
   }
 
+  // IMPORTANT: No clamping here. We allow free drag outside.
   function solvePlacement(rawX: number, rawZ: number, wM: number, dM: number, ignore: THREE.Object3D | null) {
-    let { x, z } = clampToDrawer(rawX, rawZ, wM, dM);
+    let x = rawX;
+    let z = rawZ;
+
+    // snap (nearest wins per axis)
     ({ x, z } = snapXZ(x, z, wM, dM, ignore));
-    ({ x, z } = clampToDrawer(x, z, wM, dM));
 
     const inside = isInsideDrawerAt(x, z, wM, dM);
     const coll = isCollisionAt(x, z, wM, dM, ignore);
@@ -611,7 +607,7 @@
 
     showFootprint(wM, dM, solved.x, solved.z, solved.valid);
 
-    // place ghost hovering
+    // place ghost hovering (XZ matches footprint)
     ghost.position.set(solved.x, EPSILON_M + HOVER_LIFT_M, solved.z);
 
     // tint ghost
@@ -642,6 +638,7 @@
           placed.position.set(x, EPSILON_M, z);
           scene!.add(placed);
           modules.push(placed);
+          selectedModule = placed;
         }
       }
     }
@@ -662,7 +659,7 @@
     if (controls) controls.enabled = true;
   }
 
-  // ===== Drag existing modules in drawer (still floor-bound for now) =====
+  // ===== Drag existing modules in drawer (now allowed outside) =====
   function pickModuleAt(clientX: number, clientY: number): { obj: THREE.Object3D; point: THREE.Vector3 } | null {
     if (!renderer || !camera) return null;
 
@@ -680,7 +677,6 @@
     const h = hits[0];
     if (!h) return null;
 
-    // ascend to the top-level module object that is in `modules`
     let obj: THREE.Object3D = h.object;
     while (obj.parent && !modules.includes(obj)) obj = obj.parent;
 
@@ -695,6 +691,7 @@
     const hit = pickModuleAt(ev.clientX, ev.clientY);
 
     if (!hit) {
+      selectedModule = null;
       if (controls) controls.enabled = true;
       return;
     }
@@ -703,6 +700,7 @@
 
     moduleDragActive = true;
     draggedModule = hit.obj;
+    selectedModule = draggedModule;
 
     if (controls) controls.enabled = false;
 
@@ -720,7 +718,9 @@
       dragOffset.set(0, 0);
     }
 
+    // last valid starts as current (which should be valid)
     lastValidPos.copy(draggedModule.position);
+    hasLastValid = true;
 
     window.addEventListener("pointermove", onModulePointerMove, { passive: false });
     window.addEventListener("pointerup", onModulePointerUp, { passive: false });
@@ -755,10 +755,12 @@
 
     showFootprint(wM, dM, solved.x, solved.z, solved.valid);
 
+    // Move freely (no clamping), floor-bound
     draggedModule.position.set(solved.x, EPSILON_M, solved.z);
 
     if (solved.valid) {
       lastValidPos.copy(draggedModule.position);
+      hasLastValid = true;
     }
 
     draggedModule.traverse((o) => {
@@ -781,9 +783,15 @@
       !isCollisionAt(draggedModule.position.x, draggedModule.position.z, wM, dM, draggedModule);
 
     if (!valid) {
-      draggedModule.position.copy(lastValidPos);
+      if (hasLastValid) {
+        draggedModule.position.copy(lastValidPos);
+      } else {
+        // If it somehow had no valid history, delete it
+        deleteModule(draggedModule);
+      }
     }
 
+    // reset tint
     draggedModule.traverse((o) => {
       const anyObj = o as any;
       if (anyObj.material?.color?.setHex) {
@@ -795,6 +803,7 @@
 
     moduleDragActive = false;
     draggedModule = null;
+    hasLastValid = false;
 
     window.removeEventListener("pointermove", onModulePointerMove as any);
     window.removeEventListener("pointerup", onModulePointerUp as any);
@@ -839,10 +848,8 @@
     scene.add(new THREE.GridHelper(2, 20));
     scene.add(new THREE.AxesHelper(0.3));
 
-    rebuildDrawer();
     ensureFootprint();
 
-    // Load STL assets (only once on mount)
     await loadAllStls();
 
     renderer.domElement.addEventListener("pointerdown", onCanvasPointerDown, { capture: true });
@@ -865,9 +872,10 @@
     loop();
   });
 
-  $: if (browser && scene) {
-    rebuildDrawer();
-  }
+$: if (browser && scene && widthMm && depthMm && heightMm) {
+  rebuildDrawer();
+}
+
 
   onDestroy(() => {
     if (!browser) return;
@@ -909,7 +917,6 @@
       renderer.domElement.remove();
     }
 
-    // Dispose cached geometries
     for (const entry of loaded.values()) {
       entry.geom.dispose();
     }
@@ -925,6 +932,20 @@
 
 <div class="builder-shell">
   <div class="canvas-area">
+    <!-- Top-left delete button -->
+    <div class="canvas-ui">
+      <button
+        type="button"
+        class="remove-btn"
+        on:click={onRemoveSelected}
+        disabled={!selectedModule}
+        aria-label="Remove selected module"
+        title="Remove selected module"
+      >
+        Remove
+      </button>
+    </div>
+
     <div class="viewport" bind:this={host}></div>
   </div>
 
@@ -967,6 +988,36 @@
   .canvas-area {
     position: relative;
     min-height: 360px;
+  }
+
+  .canvas-ui {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    z-index: 10;
+    pointer-events: none;
+  }
+
+  .remove-btn {
+    pointer-events: auto;
+    border-radius: 10px;
+    padding: 8px 10px;
+    font-weight: 600;
+    background: rgba(255, 255, 255, 0.85);
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    backdrop-filter: blur(6px);
+    transition: opacity 0.15s ease-out, transform 0.15s ease-out;
+  }
+
+  .remove-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+    transform: none;
+  }
+
+  .remove-btn:not(:disabled):hover {
+    opacity: 0.95;
+    transform: translateY(-1px);
   }
 
   .viewport {
