@@ -18,8 +18,16 @@
 
   // --- Height / z-fighting tuning ---
   const EPSILON_M = mm(0.2); // 0.2mm
-  const HOVER_LIFT_MM = 100; // tweakable
+  const HOVER_LIFT_MM = 100; // new-module lift
   const HOVER_LIFT_M = mm(HOVER_LIFT_MM);
+
+  // Existing-module lift (lower)
+  const MOVE_HOVER_LIFT_MM = 30;
+  const MOVE_HOVER_LIFT_M = mm(MOVE_HOVER_LIFT_MM);
+
+  // Drag/click threshold tuning (Step A)
+  const DRAG_START_DIST_PX = 8; // pixels
+  const DRAG_START_DELAY_MS = 150; // ms
 
   // Snapping / collision tuning (MVP)
   const SNAP_TOLERANCE = mm(10);
@@ -92,7 +100,7 @@
   function normalizeGeometryForRotation(
     geom: THREE.BufferGeometry,
     rot: [number, number, number]
-  ): { geom: THREE.BufferGeometry; box: THREE.Box3 } {
+  ): { geom: THREE.BufferGeometry; RELbox: THREE.Box3 } {
     const g = geom.clone();
 
     const mesh = new THREE.Mesh(g, new THREE.MeshBasicMaterial());
@@ -118,7 +126,7 @@
     box.setFromObject(group);
     (mesh.material as THREE.Material).dispose();
 
-    return { geom: g, box };
+    return { geom: g, RELbox: box };
   }
 
   async function loadAllStls() {
@@ -134,7 +142,7 @@
             geometry.computeVertexNormals();
 
             const normalized = normalizeGeometryForRotation(geometry, def.rotation);
-            const effBox = normalized.box;
+            const effBox = normalized.RELbox;
 
             const size = new THREE.Vector3();
             effBox.getSize(size);
@@ -163,26 +171,106 @@
   // ===== Placed modules =====
   let modules: THREE.Object3D[] = [];
 
-  // Selection / delete UI
+  // ===== Selection visuals (A.1): subtle tint only, no outlines =====
   let selectedModule: THREE.Object3D | null = null;
+
+  // Subtle neutral gray (works on black & white)
+  const SELECT_EMISSIVE = new THREE.Color(0x2b2b2b);
+  const SELECT_EMISSIVE_INTENSITY = 0.35;
+
+  function applySelectedVisuals(obj: THREE.Object3D) {
+    obj.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh) return;
+
+      const mats = Array.isArray(m.material) ? m.material : [m.material];
+
+      if (!m.userData.__selBackup) m.userData.__selBackup = new WeakMap();
+      const wm: WeakMap<any, any> = m.userData.__selBackup;
+
+      for (const one of mats) {
+        const sm = one as any;
+        if (!sm) continue;
+
+        if (!wm.has(one)) {
+          wm.set(one, {
+            emissive: sm.emissive?.clone?.() ?? null,
+            emissiveIntensity: typeof sm.emissiveIntensity === "number" ? sm.emissiveIntensity : null
+          });
+        }
+
+        if (sm.emissive && sm.emissive.copy) sm.emissive.copy(SELECT_EMISSIVE);
+        if (typeof sm.emissiveIntensity === "number") sm.emissiveIntensity = SELECT_EMISSIVE_INTENSITY;
+
+        sm.needsUpdate = true;
+      }
+    });
+  }
+
+  function clearSelectedVisuals(obj: THREE.Object3D) {
+    obj.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh) return;
+
+      const mats = Array.isArray(m.material) ? m.material : [m.material];
+      const wm: WeakMap<any, any> | undefined = m.userData.__selBackup;
+      if (!wm) return;
+
+      for (const one of mats) {
+        const sm = one as any;
+        const b = wm.get(one);
+        if (!b) continue;
+
+        if (b.emissive && sm.emissive?.copy) sm.emissive.copy(b.emissive);
+        if (typeof b.emissiveIntensity === "number" && typeof sm.emissiveIntensity === "number") {
+          sm.emissiveIntensity = b.emissiveIntensity;
+        }
+
+        sm.needsUpdate = true;
+      }
+    });
+  }
+
+  function setSelected(obj: THREE.Object3D | null) {
+    if (selectedModule === obj) return;
+
+    if (selectedModule) clearSelectedVisuals(selectedModule);
+    selectedModule = obj;
+    if (selectedModule) applySelectedVisuals(selectedModule);
+  }
+
+  function disposeObject(obj: THREE.Object3D) {
+    scene?.remove(obj);
+    obj.traverse((o) => {
+      const anyObj = o as any;
+      if (anyObj.geometry?.dispose) anyObj.geometry.dispose();
+      if (anyObj.material) {
+        if (Array.isArray(anyObj.material)) anyObj.material.forEach((m: any) => m.dispose?.());
+        else anyObj.material.dispose?.();
+      }
+    });
+  }
 
   function deleteModule(obj: THREE.Object3D) {
     if (!scene) return;
 
-    // remove from array
     const idx = modules.indexOf(obj);
     if (idx !== -1) modules.splice(idx, 1);
 
-    // clear selection
-    if (selectedModule === obj) selectedModule = null;
+    if (selectedModule === obj) setSelected(null);
 
-    // dispose & remove
     disposeObject(obj);
   }
 
   function onRemoveSelected() {
     if (!selectedModule) return;
     deleteModule(selectedModule);
+  }
+
+  // ===== Cursor helper (Step A) =====
+  function setCursor(kind: "default" | "grab" | "grabbing") {
+    if (!renderer) return;
+    renderer.domElement.style.cursor = kind;
   }
 
   // Footprint (single reusable mesh)
@@ -235,6 +323,35 @@
   let lastValidPos = new THREE.Vector3();
   let hasLastValid = false;
 
+  // ===== Step A.1: click-vs-drag state machines (now includes orbit) =====
+  type PendingDrag = {
+    pointerId: number;
+    startClientX: number;
+    startClientY: number;
+    startTime: number;
+    moved: boolean;
+    dragging: boolean;
+    timer: number | null;
+    kind: "palette" | "module" | "orbit";
+    moduleDef?: ModuleDef;
+    moduleObj?: THREE.Object3D;
+  };
+
+  let pending: PendingDrag | null = null;
+
+  function clearPendingTimer() {
+    if (pending?.timer != null) {
+      window.clearTimeout(pending.timer);
+      pending.timer = null;
+    }
+  }
+
+  function distPx(ax: number, ay: number, bx: number, by: number) {
+    const dx = ax - bx;
+    const dy = ay - by;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
   function buildDrawer(innerW: number, innerD: number, innerH: number) {
     const group = new THREE.Group();
     const wall = mm(WALL_MM);
@@ -250,7 +367,6 @@
       opacity
     });
 
-    // Top of bottom plate at y = -EPSILON_M
     const bottomCenterY = -(wall / 2) - EPSILON_M;
 
     // Bottom
@@ -338,18 +454,6 @@
       controls.target.set(0, innerHm / 2 - EPSILON_M, 0);
       controls.update();
     }
-  }
-
-  function disposeObject(obj: THREE.Object3D) {
-    scene?.remove(obj);
-    obj.traverse((o) => {
-      const anyObj = o as any;
-      if (anyObj.geometry?.dispose) anyObj.geometry.dispose();
-      if (anyObj.material) {
-        if (Array.isArray(anyObj.material)) anyObj.material.forEach((m: any) => m.dispose?.());
-        else anyObj.material.dispose?.();
-      }
-    });
   }
 
   // Create a renderable STL instance (ghost or solid)
@@ -443,7 +547,7 @@
     let bestDz = SNAP_TOLERANCE + 1;
     let bestZ: number | null = null;
 
-    // Wall snaps (always computed, even if you're currently outside)
+    // Wall snaps
     {
       const left = -innerWm / 2 + halfW;
       const right = innerWm / 2 - halfW;
@@ -547,7 +651,6 @@
     let x = rawX;
     let z = rawZ;
 
-    // snap (nearest wins per axis)
     ({ x, z } = snapXZ(x, z, wM, dM, ignore));
 
     const inside = isInsideDrawerAt(x, z, wM, dM);
@@ -557,16 +660,12 @@
     return { x, z, valid };
   }
 
-  // ===== Palette drag handlers =====
-  function onPalettePointerDown(item: ModuleDef, ev: PointerEvent) {
+  // ===== Start actual drag (palette) =====
+  function startPaletteDrag(item: ModuleDef, ev: PointerEvent) {
     if (!scene || !renderer || !camera) return;
     if (!stlReady) return;
 
-    ev.preventDefault();
-    ev.stopPropagation();
-
     ensureFootprint();
-
     if (controls) controls.enabled = false;
 
     paletteDragActive = true;
@@ -576,12 +675,51 @@
     if (!ghost) return;
     scene.add(ghost);
 
-    (ev.currentTarget as HTMLElement).setPointerCapture(ev.pointerId);
+    setCursor("grabbing");
 
     onPalettePointerMove(ev);
 
     window.addEventListener("pointermove", onPalettePointerMove, { passive: false });
     window.addEventListener("pointerup", onPalettePointerUp, { passive: false });
+  }
+
+  // ===== Palette pointer handlers (thresholded) =====
+  function onPalettePointerDown(item: ModuleDef, ev: PointerEvent) {
+    if (!scene || !renderer || !camera) return;
+    if (!stlReady) return;
+
+    // A.1: palette down always deselect immediately
+    setSelected(null);
+
+    ev.preventDefault();
+    ev.stopPropagation();
+
+    clearPendingTimer();
+    pending = {
+      pointerId: ev.pointerId,
+      startClientX: ev.clientX,
+      startClientY: ev.clientY,
+      startTime: performance.now(),
+      moved: false,
+      dragging: false,
+      timer: null,
+      kind: "palette",
+      moduleDef: item
+    };
+
+    setCursor("grabbing");
+    (ev.currentTarget as HTMLElement).setPointerCapture(ev.pointerId);
+
+    pending.timer = window.setTimeout(() => {
+      if (pending && pending.kind === "palette" && pending.pointerId === ev.pointerId && !pending.dragging) {
+        pending.dragging = true;
+        startPaletteDrag(item, ev);
+      }
+    }, DRAG_START_DELAY_MS);
+
+    window.addEventListener("pointermove", onPendingPointerMove, { passive: false });
+    window.addEventListener("pointerup", onPendingPointerUp, { passive: false });
+    window.addEventListener("pointercancel", onPendingPointerUp as any, { passive: false });
   }
 
   function onPalettePointerMove(ev: PointerEvent) {
@@ -607,10 +745,8 @@
 
     showFootprint(wM, dM, solved.x, solved.z, solved.valid);
 
-    // place ghost hovering (XZ matches footprint)
     ghost.position.set(solved.x, EPSILON_M + HOVER_LIFT_M, solved.z);
 
-    // tint ghost
     ghost.traverse((o) => {
       const anyObj = o as any;
       if (anyObj.material?.color?.setHex) {
@@ -638,7 +774,6 @@
           placed.position.set(x, EPSILON_M, z);
           scene!.add(placed);
           modules.push(placed);
-          selectedModule = placed;
         }
       }
     }
@@ -657,9 +792,13 @@
     window.removeEventListener("pointerup", onPalettePointerUp as any);
 
     if (controls) controls.enabled = true;
+    setCursor("default");
+
+    // A.1: after palette drop, nothing should be selected
+    setSelected(null);
   }
 
-  // ===== Drag existing modules in drawer (now allowed outside) =====
+  // ===== Drag existing modules in drawer (thresholded + hover lift) =====
   function pickModuleAt(clientX: number, clientY: number): { obj: THREE.Object3D; point: THREE.Vector3 } | null {
     if (!renderer || !camera) return null;
 
@@ -685,26 +824,17 @@
     return { obj, point: h.point.clone() };
   }
 
-  function onCanvasPointerDown(ev: PointerEvent) {
-    if (paletteDragActive || moduleDragActive) return;
-
-    const hit = pickModuleAt(ev.clientX, ev.clientY);
-
-    if (!hit) {
-      selectedModule = null;
-      if (controls) controls.enabled = true;
-      return;
-    }
+  function startModuleDrag(obj: THREE.Object3D, ev: PointerEvent) {
+    if (!renderer) return;
 
     ensureFootprint();
 
     moduleDragActive = true;
-    draggedModule = hit.obj;
-    selectedModule = draggedModule;
+    draggedModule = obj;
 
     if (controls) controls.enabled = false;
 
-    renderer!.domElement.setPointerCapture(ev.pointerId);
+    setCursor("grabbing");
 
     const ndcInfo = clientToNdc(ev.clientX, ev.clientY);
     if (ndcInfo && ndcInfo.over) {
@@ -718,17 +848,85 @@
       dragOffset.set(0, 0);
     }
 
-    // last valid starts as current (which should be valid)
     lastValidPos.copy(draggedModule.position);
     hasLastValid = true;
 
+    onModulePointerMove(ev);
+
     window.addEventListener("pointermove", onModulePointerMove, { passive: false });
     window.addEventListener("pointerup", onModulePointerUp, { passive: false });
+  }
+
+  // A.1: pointerdown on empty canvas should NOT deselect immediately.
+  // We start a pending "orbit" gesture; if it's a click (no move), deselect on pointerup.
+  function onCanvasPointerDown(ev: PointerEvent) {
+    if (paletteDragActive || moduleDragActive) return;
+
+    const hit = pickModuleAt(ev.clientX, ev.clientY);
+
+    if (!hit) {
+      clearPendingTimer();
+      pending = {
+        pointerId: ev.pointerId,
+        startClientX: ev.clientX,
+        startClientY: ev.clientY,
+        startTime: performance.now(),
+        moved: false,
+        dragging: false,
+        timer: null,
+        kind: "orbit"
+      };
+
+      // allow orbit
+      if (controls) controls.enabled = true;
+
+      renderer!.domElement.setPointerCapture(ev.pointerId);
+
+      // no delay needed; we just track moved/not moved
+      window.addEventListener("pointermove", onPendingPointerMove, { passive: true });
+      window.addEventListener("pointerup", onPendingPointerUp, { passive: true });
+      window.addEventListener("pointercancel", onPendingPointerUp as any, { passive: true });
+
+      // don't stopPropagation -> let OrbitControls do its thing
+      return;
+    }
+
+    // Select on pointerdown (no lift)
+    setSelected(hit.obj);
+
+    clearPendingTimer();
+    pending = {
+      pointerId: ev.pointerId,
+      startClientX: ev.clientX,
+      startClientY: ev.clientY,
+      startTime: performance.now(),
+      moved: false,
+      dragging: false,
+      timer: null,
+      kind: "module",
+      moduleObj: hit.obj
+    };
+
+    renderer!.domElement.setPointerCapture(ev.pointerId);
+
+    // While pending on a module, disable orbit so it doesn't steal the gesture.
+    if (controls) controls.enabled = false;
+
+    setCursor("grabbing");
+
+    pending.timer = window.setTimeout(() => {
+      if (pending && pending.kind === "module" && pending.pointerId === ev.pointerId && !pending.dragging) {
+        pending.dragging = true;
+        startModuleDrag(hit.obj, ev);
+      }
+    }, DRAG_START_DELAY_MS);
+
+    window.addEventListener("pointermove", onPendingPointerMove, { passive: false });
+    window.addEventListener("pointerup", onPendingPointerUp, { passive: false });
+    window.addEventListener("pointercancel", onPendingPointerUp as any, { passive: false });
 
     ev.preventDefault();
     ev.stopPropagation();
-
-    onModulePointerMove(ev);
   }
 
   function onModulePointerMove(ev: PointerEvent) {
@@ -755,11 +953,10 @@
 
     showFootprint(wM, dM, solved.x, solved.z, solved.valid);
 
-    // Move freely (no clamping), floor-bound
-    draggedModule.position.set(solved.x, EPSILON_M, solved.z);
+    draggedModule.position.set(solved.x, EPSILON_M + MOVE_HOVER_LIFT_M, solved.z);
 
     if (solved.valid) {
-      lastValidPos.copy(draggedModule.position);
+      lastValidPos.set(solved.x, EPSILON_M, solved.z);
       hasLastValid = true;
     }
 
@@ -777,21 +974,21 @@
     ev.preventDefault();
 
     const { wM, dM } = getDims(draggedModule);
+    const x = draggedModule.position.x;
+    const z = draggedModule.position.z;
 
-    const valid =
-      isInsideDrawerAt(draggedModule.position.x, draggedModule.position.z, wM, dM) &&
-      !isCollisionAt(draggedModule.position.x, draggedModule.position.z, wM, dM, draggedModule);
+    const valid = isInsideDrawerAt(x, z, wM, dM) && !isCollisionAt(x, z, wM, dM, draggedModule);
 
     if (!valid) {
       if (hasLastValid) {
         draggedModule.position.copy(lastValidPos);
       } else {
-        // If it somehow had no valid history, delete it
         deleteModule(draggedModule);
       }
+    } else {
+      draggedModule.position.set(x, EPSILON_M, z);
     }
 
-    // reset tint
     draggedModule.traverse((o) => {
       const anyObj = o as any;
       if (anyObj.material?.color?.setHex) {
@@ -808,7 +1005,88 @@
     window.removeEventListener("pointermove", onModulePointerMove as any);
     window.removeEventListener("pointerup", onModulePointerUp as any);
 
+    // After drag+drop it should NOT be selected.
+    setSelected(null);
+
     if (controls) controls.enabled = true;
+    setCursor("default");
+  }
+
+  // ===== Pending pointer move/up (shared) =====
+  function onPendingPointerMove(ev: PointerEvent) {
+    if (!pending) return;
+    if (ev.pointerId !== pending.pointerId) return;
+
+    const d = distPx(ev.clientX, ev.clientY, pending.startClientX, pending.startClientY);
+    if (d >= DRAG_START_DIST_PX) pending.moved = true;
+
+    // Only prevent default for module/palette; do not interfere with orbit.
+    if (pending.kind !== "orbit") ev.preventDefault();
+
+    // If moved enough before timer, start drag immediately
+    if (!pending.dragging && pending.moved) {
+      clearPendingTimer();
+      pending.dragging = true;
+
+      if (pending.kind === "palette" && pending.moduleDef) {
+        startPaletteDrag(pending.moduleDef, ev);
+      } else if (pending.kind === "module" && pending.moduleObj) {
+        startModuleDrag(pending.moduleObj, ev);
+      } else if (pending.kind === "orbit") {
+        // nothing to start; OrbitControls handles it. We just mark it as "dragging".
+      }
+    }
+  }
+
+  function onPendingPointerUp(ev: PointerEvent) {
+    if (!pending) return;
+    if (ev.pointerId !== pending.pointerId) return;
+
+    // Only prevent default for module/palette; do not interfere with orbit.
+    if (pending.kind !== "orbit") ev.preventDefault();
+
+    const wasDragging = pending.dragging;
+    const kind = pending.kind;
+    const modObj = pending.moduleObj;
+
+    clearPendingTimer();
+
+    window.removeEventListener("pointermove", onPendingPointerMove as any);
+    window.removeEventListener("pointerup", onPendingPointerUp as any);
+    window.removeEventListener("pointercancel", onPendingPointerUp as any);
+
+    pending = null;
+
+    // If we never started a drag, treat as click:
+    if (!wasDragging) {
+      if (kind === "module" && modObj) {
+        // Already selected on pointerdown; keep selected.
+        if (controls) controls.enabled = true;
+        setCursor("grab");
+        return;
+      }
+
+      if (kind === "orbit") {
+        // Click on empty/låda => deselect.
+        setSelected(null);
+        return;
+      }
+
+      // palette click does nothing (selection already cleared on pointerdown)
+      if (controls) controls.enabled = true;
+      setCursor("default");
+      return;
+    }
+
+    // If we DID start a drag, its own pointerup handler will run (palette/module).
+    // For orbit: keep selection intact (do nothing).
+  }
+
+  // Hover cursor feedback over canvas modules (Step A)
+  function onCanvasPointerMoveForCursor(ev: PointerEvent) {
+    if (paletteDragActive || moduleDragActive || pending) return;
+    const hit = pickModuleAt(ev.clientX, ev.clientY);
+    setCursor(hit ? "grab" : "default");
   }
 
   // Palette preview helper (2D footprint)
@@ -836,6 +1114,7 @@
     host.appendChild(renderer.domElement);
 
     renderer.domElement.style.touchAction = "none";
+    setCursor("default");
 
     scene.add(new THREE.AmbientLight(undefined, 0.7));
     const dir = new THREE.DirectionalLight(undefined, 0.8);
@@ -853,6 +1132,7 @@
     await loadAllStls();
 
     renderer.domElement.addEventListener("pointerdown", onCanvasPointerDown, { capture: true });
+    renderer.domElement.addEventListener("pointermove", onCanvasPointerMoveForCursor, { passive: true });
 
     ro = new ResizeObserver(() => {
       if (!renderer || !camera) return;
@@ -872,13 +1152,19 @@
     loop();
   });
 
-$: if (browser && scene && widthMm && depthMm && heightMm) {
-  rebuildDrawer();
-}
-
+  $: if (browser && scene && widthMm && depthMm && heightMm) {
+    rebuildDrawer();
+  }
 
   onDestroy(() => {
     if (!browser) return;
+
+    clearPendingTimer();
+    pending = null;
+
+    window.removeEventListener("pointermove", onPendingPointerMove as any);
+    window.removeEventListener("pointerup", onPendingPointerUp as any);
+    window.removeEventListener("pointercancel", onPendingPointerUp as any);
 
     window.removeEventListener("pointermove", onPalettePointerMove as any);
     window.removeEventListener("pointerup", onPalettePointerUp as any);
@@ -887,6 +1173,7 @@ $: if (browser && scene && widthMm && depthMm && heightMm) {
 
     if (renderer?.domElement) {
       renderer.domElement.removeEventListener("pointerdown", onCanvasPointerDown, { capture: true } as any);
+      renderer.domElement.removeEventListener("pointermove", onCanvasPointerMoveForCursor as any);
     }
 
     if (raf) cancelAnimationFrame(raf);
@@ -902,6 +1189,12 @@ $: if (browser && scene && widthMm && depthMm && heightMm) {
     if (footprint) {
       disposeObject(footprint);
       footprint = null;
+    }
+
+    // clear selection visuals
+    if (selectedModule) {
+      clearSelectedVisuals(selectedModule);
+      selectedModule = null;
     }
 
     for (const m of modules) disposeObject(m);
