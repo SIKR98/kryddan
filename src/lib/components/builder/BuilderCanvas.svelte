@@ -66,6 +66,7 @@
     label: string;
     file: string; // under /modules/...
     rotation: [number, number, number]; // radians
+    isProfile?: boolean; // Step B
   };
 
   const DEFAULT_STL_ROT: [number, number, number] = [deg(-90), 0, 0];
@@ -77,10 +78,71 @@
       id: "tile_3_small_profile",
       label: "Tile 3 Small Profile",
       file: "/modules/tile_3_small_profile.stl",
-      rotation: DEFAULT_STL_ROT
+      rotation: DEFAULT_STL_ROT,
+      isProfile: true
     },
     { id: "tile_3_small_slot", label: "Tile 3 Small Slot", file: "/modules/tile_3_small_slot.stl", rotation: DEFAULT_STL_ROT }
   ];
+
+  // ===== Step B: Profile auto-mirror =====
+  const PROFILE_MIRROR_DEADBAND_M = mm(10); // 10mm runt centerlinjen
+  const defById = new Map<string, ModuleDef>(modulesCatalog.map((d) => [d.id, d]));
+
+  function isProfileDefId(defId: string | undefined) {
+    if (!defId) return false;
+    return !!defById.get(defId)?.isProfile;
+  }
+
+  // Deadband: under -10mm => mirrored, över +10mm => normal, i mitten => behåll nuvarande
+  function desiredMirrorForX(x: number, current: boolean) {
+    if (x < -PROFILE_MIRROR_DEADBAND_M) return true;
+    if (x > PROFILE_MIRROR_DEADBAND_M) return false;
+    return current;
+  }
+
+  function ensureDoubleSideOnce(obj: THREE.Object3D) {
+    if (obj.userData.__doubleSided) return;
+    obj.userData.__doubleSided = true;
+
+    obj.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh) return;
+
+      const mats = Array.isArray(m.material) ? m.material : [m.material];
+      for (const mat of mats) {
+        const anyMat = mat as any;
+        if (anyMat && typeof anyMat.side === "number") {
+          anyMat.side = THREE.DoubleSide; // undviker inside-out vid negativ scale
+          anyMat.needsUpdate = true;
+        }
+      }
+    });
+  }
+
+  function setMirrored(obj: THREE.Object3D | null, mirrored: boolean) {
+    if (!obj) return;
+
+    const defId = obj.userData.defId as string | undefined;
+    const isProfile = isProfileDefId(defId);
+
+    if (!isProfile) {
+      obj.userData.mirrored = false;
+      const s = Math.abs(obj.scale.x || 1);
+      obj.scale.x = s;
+      return;
+    }
+
+    ensureDoubleSideOnce(obj);
+
+    if (obj.userData.mirrored === mirrored) return;
+
+    obj.userData.mirrored = mirrored;
+
+    const sx = Math.abs(obj.scale.x || 1);
+    obj.scale.x = mirrored ? -sx : sx;
+
+    obj.updateMatrixWorld(true);
+  }
 
   // Cache loaded STL geometry + dims so we can instantiate quickly
   type LoadedModule = {
@@ -265,6 +327,61 @@
   function onRemoveSelected() {
     if (!selectedModule) return;
     deleteModule(selectedModule);
+  }
+
+  // ===== Steg 1: Blur inputs när man interagerar med canvas/palett/moduler/orbit =====
+  function blurActiveInputIfAny() {
+    if (!browser) return;
+    const el = document.activeElement as HTMLElement | null;
+    if (!el) return;
+
+    const tag = el.tagName?.toLowerCase?.() ?? "";
+    const isInputLike = tag === "input" || tag === "textarea" || tag === "select";
+    const isEditable = (el as any).isContentEditable || !!el.closest?.("[contenteditable='true']");
+
+    if (isInputLike || isEditable) {
+      el.blur();
+    }
+  }
+
+  // ===== A.2: Keyboard delete (Backspace + Delete) + Esc/Enter blur på inputs =====
+  function isTextEditingTarget(target: EventTarget | null) {
+    const el = target as HTMLElement | null;
+    if (!el) return false;
+
+    const tag = el.tagName?.toLowerCase?.() ?? "";
+    if (tag === "input" || tag === "textarea" || tag === "select") return true;
+
+    if ((el as any).isContentEditable) return true;
+    return !!el.closest?.("[contenteditable='true']");
+  }
+
+  function onGlobalKeyDown(ev: KeyboardEvent) {
+    const k = ev.key;
+
+    // Esc/Enter ska avsluta input-interaction
+    if (isTextEditingTarget(ev.target)) {
+      // Undvik att sabba textarea-newline; Enter i textarea lämnas normalt
+      const el = ev.target as HTMLElement;
+      const tag = el?.tagName?.toLowerCase?.() ?? "";
+
+      if (k === "Escape" || (k === "Enter" && tag !== "textarea")) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        (el as any).blur?.();
+      }
+      return;
+    }
+
+    // Delete/Backspace ska ta bort selected (när vi INTE editerar input)
+    if (!selectedModule) return;
+    if (moduleDragActive || paletteDragActive || pending) return;
+
+    if (k === "Backspace" || k === "Delete") {
+      ev.preventDefault();
+      ev.stopPropagation();
+      deleteModule(selectedModule);
+    }
   }
 
   // ===== Cursor helper (Step A) =====
@@ -478,6 +595,11 @@
     group.userData.hM = info.hM;
     group.userData.defId = defId;
 
+    // Step B: mirror state
+    group.userData.mirrored = false;
+    group.userData.isProfile = isProfileDefId(defId);
+    if (group.userData.isProfile) ensureDoubleSideOnce(group);
+
     // bottom at y=EPSILON_M in world
     group.position.set(0, EPSILON_M, 0);
 
@@ -688,6 +810,9 @@
     if (!scene || !renderer || !camera) return;
     if (!stlReady) return;
 
+    // Steg 1: lämna inputs när vi går till paletten
+    blurActiveInputIfAny();
+
     // A.1: palette down always deselect immediately
     setSelected(null);
 
@@ -747,6 +872,9 @@
 
     ghost.position.set(solved.x, EPSILON_M + HOVER_LIFT_M, solved.z);
 
+    // Step B: auto-mirror ghost (deadband runt mitten)
+    setMirrored(ghost, desiredMirrorForX(solved.x, !!ghost.userData.mirrored));
+
     ghost.traverse((o) => {
       const anyObj = o as any;
       if (anyObj.material?.color?.setHex) {
@@ -774,6 +902,9 @@
           placed.position.set(x, EPSILON_M, z);
           scene!.add(placed);
           modules.push(placed);
+
+          // Step B: kopiera spegel-state från ghost
+          setMirrored(placed, !!ghost.userData.mirrored);
         }
       }
     }
@@ -861,6 +992,9 @@
   // We start a pending "orbit" gesture; if it's a click (no move), deselect on pointerup.
   function onCanvasPointerDown(ev: PointerEvent) {
     if (paletteDragActive || moduleDragActive) return;
+
+    // Steg 1: lämna inputs när vi går till canvas/orbit/moduler
+    blurActiveInputIfAny();
 
     const hit = pickModuleAt(ev.clientX, ev.clientY);
 
@@ -955,6 +1089,9 @@
 
     draggedModule.position.set(solved.x, EPSILON_M + MOVE_HOVER_LIFT_M, solved.z);
 
+    // Step B: auto-mirror while dragging (deadband runt mitten)
+    setMirrored(draggedModule, desiredMirrorForX(solved.x, !!draggedModule.userData.mirrored));
+
     if (solved.valid) {
       lastValidPos.set(solved.x, EPSILON_M, solved.z);
       hasLastValid = true;
@@ -982,11 +1119,15 @@
     if (!valid) {
       if (hasLastValid) {
         draggedModule.position.copy(lastValidPos);
+        // Step B: säkerställ mirror efter revert
+        setMirrored(draggedModule, desiredMirrorForX(draggedModule.position.x, !!draggedModule.userData.mirrored));
       } else {
         deleteModule(draggedModule);
       }
     } else {
       draggedModule.position.set(x, EPSILON_M, z);
+      // Step B: säkerställ mirror efter release
+      setMirrored(draggedModule, desiredMirrorForX(draggedModule.position.x, !!draggedModule.userData.mirrored));
     }
 
     draggedModule.traverse((o) => {
@@ -1131,6 +1272,9 @@
 
     await loadAllStls();
 
+    // A.2 keyboard (+ Steg 1: Esc/Enter blur)
+    window.addEventListener("keydown", onGlobalKeyDown, { capture: true });
+
     renderer.domElement.addEventListener("pointerdown", onCanvasPointerDown, { capture: true });
     renderer.domElement.addEventListener("pointermove", onCanvasPointerMoveForCursor, { passive: true });
 
@@ -1158,6 +1302,8 @@
 
   onDestroy(() => {
     if (!browser) return;
+
+    window.removeEventListener("keydown", onGlobalKeyDown, { capture: true } as any);
 
     clearPendingTimer();
     pending = null;
