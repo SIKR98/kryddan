@@ -477,11 +477,15 @@
     const D = innerD;
     const H = innerH;
 
-    const opacity = hasCornerProfile === "yes" ? 0.18 : 0.25;
-
+    // CAD/white-plastic look: solid white + matte + a touch of emissive so it doesn't look "smutsgrå"
     const mat = new THREE.MeshStandardMaterial({
-      transparent: true,
-      opacity
+      color: 0xffffff,
+      roughness: 0.9,
+      metalness: 0.0,
+      transparent: false,
+      opacity: 1,
+      emissive: new THREE.Color(0xffffff),
+      emissiveIntensity: 0.18
     });
 
     const bottomCenterY = -(wall / 2) - EPSILON_M;
@@ -529,13 +533,13 @@
     }
 
     // Inner bounds helper (wireframe box)
-    {
-      const innerGeo = new THREE.BoxGeometry(W, H, D);
-      const edges = new THREE.EdgesGeometry(innerGeo);
-      const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial());
-      line.position.set(0, H / 2 - EPSILON_M, 0);
-      group.add(line);
-    }
+    // {
+    //   const innerGeo = new THREE.BoxGeometry(W, H, D);
+    //   const edges = new THREE.EdgesGeometry(innerGeo);
+    //   const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial());
+    //   line.position.set(0, H / 2 - EPSILON_M, 0);
+    //   group.add(line);
+    // }
 
     return group;
   }
@@ -566,11 +570,6 @@
 
     drawerGroup = buildDrawer(innerWm, innerDm, innerHm);
     scene.add(drawerGroup);
-
-    if (controls) {
-      controls.target.set(0, innerHm / 2 - EPSILON_M, 0);
-      controls.update();
-    }
   }
 
   // Create a renderable STL instance (ghost or solid)
@@ -578,10 +577,27 @@
     const info = loaded.get(defId);
     if (!info) return null;
 
+    // --- CHANGE: flatShading + matte settings to avoid "buktig/osymmetrisk" shading on STL normals ---
     const mat =
       kind === "ghost"
-        ? new THREE.MeshStandardMaterial({ transparent: true, opacity: 0.55, color: new THREE.Color(0x222222) })
-        : new THREE.MeshStandardMaterial({ transparent: true, opacity: 0.92, color: new THREE.Color(0x222222) });
+        ? new THREE.MeshStandardMaterial({
+            transparent: true,
+            opacity: 0.55,
+            color: new THREE.Color(0x222222),
+            side: THREE.DoubleSide,
+            flatShading: true,
+            roughness: 0.9,
+            metalness: 0.0
+          })
+        : new THREE.MeshStandardMaterial({
+            transparent: true,
+            opacity: 0.92,
+            color: new THREE.Color(0x222222),
+            side: THREE.DoubleSide,
+            flatShading: true,
+            roughness: 0.9,
+            metalness: 0.0
+          });
 
     const mesh = new THREE.Mesh(info.geom, mat);
 
@@ -1247,20 +1263,36 @@
 
     scene = new THREE.Scene();
 
+    // --- CHANGE (variant B): CAD-style white background so "white" reads as white ---
+    scene.background = new THREE.Color(0xe8e9eb);
+
     camera = new THREE.PerspectiveCamera(50, 1, 0.01, 50);
     camera.position.set(0.6, 0.5, 0.6);
 
     renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+    // keep: correct color output so whites don't look dull/gray
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+
     host.appendChild(renderer.domElement);
 
     renderer.domElement.style.touchAction = "none";
     setCursor("default");
 
     scene.add(new THREE.AmbientLight(undefined, 0.7));
+
+    // --- CHANGE (variant B): soft fill light like CAD viewports ---
+    const hemi = new THREE.HemisphereLight(0xffffff, 0xffffff, 0.9);
+    scene.add(hemi);
+
     const dir = new THREE.DirectionalLight(undefined, 0.8);
     dir.position.set(1, 2, 1);
     scene.add(dir);
+
+    const top = new THREE.DirectionalLight(0xffffff, 0.6);
+    top.position.set(0, 5, 0);
+    scene.add(top);
 
     controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
