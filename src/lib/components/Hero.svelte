@@ -39,17 +39,14 @@
         </div>
       </div>
 
-      <!-- RIGHT COLUMN: Image -->
+    <!-- RIGHT COLUMN: Image -->
       <div class="grid h-full w-full place-items-center pb-m md:pb-0">
-        <div class="border-default relative h-full max-h-[60vh] w-full overflow-hidden bg-white">
-          <div class="absolute inset-0 grid place-items-center">
-            <div class="text-center">
-              <div class="heading-2">Product image</div>
-              <p class="body-text margin-y-s">
-                Replace with a real drawer photo / render.
-              </p>
-            </div>
-          </div>
+        <div class="inline-block">
+          <img
+            src="/images/spiceHolder2.png"
+            alt="SpiceModules"
+            class="max-h-[60vh] w-auto drop-shadow-[0_20px_40px_rgba(0,0,0,0.15)]"
+          />
         </div>
       </div>
     </div>
