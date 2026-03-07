@@ -37,6 +37,11 @@
   // STL units: Fusion exports in mm, scene uses meters
   const STL_MM_TO_M = 0.001;
 
+  // --- Inner grid settings ---
+  const GRID_CELL_M = mm(50); // 50x50mm cells
+  const INNER_GRID_Y = EPSILON_M * 2; // "pyttelite ovanför botten"
+  const OUTER_PLANE_Y = -mm(WALL_MM) - mm(1); // under lådans botten
+
   let host: HTMLDivElement;
 
   // Three runtime
@@ -49,6 +54,12 @@
 
   // Drawer
   let drawerGroup: THREE.Group | null = null;
+
+  // Inner grid (limited to drawer)
+  let innerGrid: THREE.LineSegments | null = null;
+
+  // Outer "space" plane
+  let outerPlane: THREE.Mesh | null = null;
 
   // Drawer inner bounds in meters (updated when props change)
   let innerWm = mm(400);
@@ -469,6 +480,84 @@
     return Math.sqrt(dx * dx + dy * dy);
   }
 
+  // ===== Outer plane (for "rymd") =====
+  function ensureOuterPlane() {
+    if (!scene || outerPlane) return;
+
+    const geo = new THREE.PlaneGeometry(6, 6);
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0xe1e2e5,
+      roughness: 1.0,
+      metalness: 0.0,
+      transparent: false
+    });
+
+    outerPlane = new THREE.Mesh(geo, mat);
+    outerPlane.rotation.x = -Math.PI / 2;
+    outerPlane.position.set(0, OUTER_PLANE_Y, 0);
+    outerPlane.receiveShadow = false;
+    scene.add(outerPlane);
+  }
+
+  // ===== Inner grid (limited to drawer + 50mm cells) =====
+  function disposeInnerGrid() {
+    if (!innerGrid) return;
+    scene?.remove(innerGrid);
+    innerGrid.geometry.dispose();
+    (innerGrid.material as THREE.Material).dispose();
+    innerGrid = null;
+  }
+
+  function rebuildInnerGrid() {
+    if (!scene) return;
+
+    disposeInnerGrid();
+
+    const cols = Math.max(0, Math.floor(innerWm / GRID_CELL_M));
+    const rows = Math.max(0, Math.floor(innerDm / GRID_CELL_M));
+
+    if (cols === 0 || rows === 0) return;
+
+    const gridW = cols * GRID_CELL_M;
+    const gridD = rows * GRID_CELL_M;
+
+    // Centered in width:
+    const xMin = -gridW / 2;
+    const xMax = gridW / 2;
+
+    // Starts at front inside, goes backward:
+    const zFront = innerDm / 2;
+    const zMax = zFront;
+    const zMin = zFront - gridD;
+
+    const positions: number[] = [];
+
+    // Vertical lines (along Z)
+    for (let c = 0; c <= cols; c++) {
+      const x = xMin + c * GRID_CELL_M;
+      positions.push(x, INNER_GRID_Y, zMin, x, INNER_GRID_Y, zMax);
+    }
+
+    // Horizontal lines (along X)
+    for (let r = 0; r <= rows; r++) {
+      const z = zMax - r * GRID_CELL_M;
+      positions.push(xMin, INNER_GRID_Y, z, xMax, INNER_GRID_Y, z);
+    }
+
+    const geom = new THREE.BufferGeometry();
+    geom.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+
+    const mat = new THREE.LineBasicMaterial({
+      color: 0xb6b8bf,
+      transparent: true,
+      opacity: 0.75,
+      depthWrite: false
+    });
+
+    innerGrid = new THREE.LineSegments(geom, mat);
+    scene.add(innerGrid);
+  }
+
   function buildDrawer(innerW: number, innerD: number, innerH: number) {
     const group = new THREE.Group();
     const wall = mm(WALL_MM);
@@ -532,15 +621,6 @@
       group.add(mesh);
     }
 
-    // Inner bounds helper (wireframe box)
-    // {
-    //   const innerGeo = new THREE.BoxGeometry(W, H, D);
-    //   const edges = new THREE.EdgesGeometry(innerGeo);
-    //   const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial());
-    //   line.position.set(0, H / 2 - EPSILON_M, 0);
-    //   group.add(line);
-    // }
-
     return group;
   }
 
@@ -570,6 +650,9 @@
 
     drawerGroup = buildDrawer(innerWm, innerDm, innerHm);
     scene.add(drawerGroup);
+
+    // Rebuild limited inner grid (50x50mm) for new dimensions
+    rebuildInnerGrid();
   }
 
   // Create a renderable STL instance (ghost or solid)
@@ -577,7 +660,7 @@
     const info = loaded.get(defId);
     if (!info) return null;
 
-    // --- CHANGE: flatShading + matte settings to avoid "buktig/osymmetrisk" shading on STL normals ---
+    // matte + flatShading to avoid "buktig/osymmetrisk" shading on STL normals
     const mat =
       kind === "ghost"
         ? new THREE.MeshStandardMaterial({
@@ -1263,7 +1346,7 @@
 
     scene = new THREE.Scene();
 
-    // --- CHANGE (variant B): CAD-style white background so "white" reads as white ---
+    // CAD-style background
     scene.background = new THREE.Color(0xe8e9eb);
 
     camera = new THREE.PerspectiveCamera(50, 1, 0.01, 50);
@@ -1272,7 +1355,7 @@
     renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
-    // keep: correct color output so whites don't look dull/gray
+    // correct color output so whites don't look dull/gray
     renderer.outputColorSpace = THREE.SRGBColorSpace;
 
     host.appendChild(renderer.domElement);
@@ -1280,9 +1363,8 @@
     renderer.domElement.style.touchAction = "none";
     setCursor("default");
 
+    // Lights
     scene.add(new THREE.AmbientLight(undefined, 0.7));
-
-    // --- CHANGE (variant B): soft fill light like CAD viewports ---
     const hemi = new THREE.HemisphereLight(0xffffff, 0xffffff, 0.9);
     scene.add(hemi);
 
@@ -1297,14 +1379,17 @@
     controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
 
-    scene.add(new THREE.GridHelper(2, 20));
+    // --- NEW: "rymd"-plane under lådan (utan rutnät) ---
+    ensureOuterPlane();
+
+    // Keep axes helper
     scene.add(new THREE.AxesHelper(0.3));
 
     ensureFootprint();
 
     await loadAllStls();
 
-    // A.2 keyboard (+ Steg 1: Esc/Enter blur)
+    // keyboard (+ Steg 1: Esc/Enter blur)
     window.addEventListener("keydown", onGlobalKeyDown, { capture: true });
 
     renderer.domElement.addEventListener("pointerdown", onCanvasPointerDown, { capture: true });
@@ -1381,6 +1466,15 @@
     if (scene && drawerGroup) {
       scene.remove(drawerGroup);
       disposeGroup(drawerGroup);
+    }
+
+    // dispose inner grid + outer plane
+    disposeInnerGrid();
+    if (outerPlane) {
+      scene?.remove(outerPlane);
+      outerPlane.geometry.dispose();
+      (outerPlane.material as THREE.Material).dispose();
+      outerPlane = null;
     }
 
     if (renderer) {
